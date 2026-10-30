@@ -1,0 +1,7 @@
+{
+  "experiment": "graph-3colourability-demo",
+  "vertices": 5,
+  "start_mask": 0,
+  "graph_count": 1024,
+  "shard_count": 4
+}
