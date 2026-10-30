@@ -1,0 +1,38 @@
+name: K11122 exact search
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['k11122/**', '.github/workflows/k11122.yml']
+permissions:
+  contents: read
+concurrency:
+  group: k11122-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  search:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [0, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install solver
+        run: python -m pip install z3-solver==4.13.3.0
+      - name: Test encodings and checker
+        run: python -m unittest discover -s k11122 -p 'test_*.py' -v
+      - name: Search and exhaustive replay
+        run: python k11122/search.py --target ${{ matrix.target }} --seconds 1200 --solve-seconds 60 --output results/target-${{ matrix.target }}
+      - name: Preserve results even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k11122-target-${{ matrix.target }}-${{ github.run_id }}
+          path: results/
+          if-no-files-found: warn
+          retention-days: 30
