@@ -1,0 +1,43 @@
+name: Graph SAT smoke test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - experiment.json
+      - scripts/**
+      - tests/**
+      - .github/workflows/graph-sat.yml
+
+permissions:
+  contents: read
+
+jobs:
+  check-and-solve:
+    name: Graph SAT shard ${{ matrix.shard }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - name: Check out exact revision
+        uses: actions/checkout@v4
+      - name: Install MiniSat
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y minisat
+      - name: Unit tests
+        run: python3 -m unittest discover -s tests -v
+      - name: Enumerate graphs and solve SAT instances
+        run: python3 scripts/graph_sat.py --config experiment.json --shard "${{ matrix.shard }}" --output "results/shard-${{ matrix.shard }}"
+      - name: Upload reproducibility artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: graph-sat-shard-${{ matrix.shard }}
+          path: results/shard-${{ matrix.shard }}/
+          if-no-files-found: warn
+          retention-days: 14
