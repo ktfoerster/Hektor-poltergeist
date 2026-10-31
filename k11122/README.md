@@ -80,13 +80,24 @@ self-hosted runners, paid machine provisioning or infinite resubmission.
 
 
 ## Continuation version (31 October 2026)
-The workflow imports the original run 41140359924 checkpoints (884 singleton
-residuals, 724 doubleton residuals), checks each checkpoint against its artifact
-SHA manifest, and reconstructs those obligations in every branch. It fails
-explicitly if baseline artifacts are missing/expired; it never silently starts
-from scratch. This workflow is pinned to that baseline: future continuation
-must explicitly select the next saved checkpoint(s). No infinite chaining.
-Artifacts expire after 30 days, so archive them before then.
+The workflow merges both branch checkpoints from run 41153794470 separately
+for each destination orbit. The four original checkpoint files and their
+artifact provenance are retained in `checkpoints/run-41153794470/`, so this
+continuation does not depend on expiring Actions downloads. Original ZIPs
+passed their GitHub SHA-256 digests, all CRC checks and all per-file hashes
+before checkpoint extraction. The merger rechecks checkpoint hashes, model,
+target, branch and mask domains before taking a deterministic sorted union.
+Only unconditional residual obligations are imported; no branch assertions,
+solver statuses or candidate policies are combined. Each new branch starts
+from the same union for its destination orbit.
+
+Reproduce the merge with:
+```
+python k11122/merge_checkpoints.py --target 0 --output merged-t0.json
+python k11122/merge_checkpoints.py --target 3 --output merged-t3.json
+```
+The output file must be new. The workflow is pinned to this input run and does
+not chain indefinitely. New result artifacts still expire after 30 days.
 
 A timeout now triggers another bounded solver call with progressively longer
 limits (60,120,240,480,600 seconds) and deterministic recorded seeds, capped
