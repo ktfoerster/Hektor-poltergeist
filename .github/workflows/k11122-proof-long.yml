@@ -1,0 +1,83 @@
+name: K11122 retained CNF long proof run
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/k11122-proof-long.yml'
+permissions:
+  contents: read
+concurrency:
+  group: k11122-retained-t0-b0-long-proof
+  cancel-in-progress: false
+jobs:
+  retained-instance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 140
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned dependencies
+        run: pip install python-sat==1.8.dev24 z3-solver==4.13.3.0
+      - name: Regression suite
+        run: python -m unittest discover -s k11122 -v
+      - name: Export unchanged retained target-0 branch-0 instance
+        timeout-minutes: 10
+        run: |
+          python k11122/proof_cnf.py export --target 0 --branch 0 --checkpoint k11122/checkpoints/run-41180021309/t0-b0.json --output long-proof
+          python - <<'PY'
+          import json, os, pathlib, hashlib
+          root = pathlib.Path('long-proof')
+          export = json.loads((root / 'export.json').read_text())
+          assert export['cnf_sha256'] == '61c1ea4f4b0dbdd2d49393336ea2c964cd1c62f3eafab9f29456e7e8c5751af5'
+          assert (len(export['masks']), export['variables'], export['clauses']) == (2648, 1243196, 4732643)
+          source = pathlib.Path('k11122/checkpoints/run-41180021309/t0-b0.json')
+          data = dict(commit=os.environ['GITHUB_SHA'], run_id=os.environ['GITHUB_RUN_ID'],
+                      target=0, branch=0, solver_phase_seconds=3600, checker_phase_seconds=3600,
+                      checkpoint_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
+                      scope='Retained finite residual family and one exhaustive source-split branch only',
+                      classification='UNKNOWN')
+          (root / 'run.json').write_text(json.dumps(data, indent=2, sort_keys=True))
+          PY
+      - name: Preserve exact input before solving
+        uses: actions/upload-artifact@v4
+        with:
+          name: retained-t0-b0-cnf
+          path: |
+            long-proof/formula.cnf
+            long-proof/selectors.json
+            long-proof/export.json
+            long-proof/run.json
+          retention-days: 30
+          compression-level: 6
+      - name: Solve for up to 60 minutes and independently check any refutation
+        timeout-minutes: 125
+        run: |
+          set -o pipefail
+          /usr/bin/time -v -o long-proof/resources.txt python k11122/proof_cnf.py certify --output long-proof --checker watched --seconds 3600 2>&1 | tee long-proof/pipeline.log
+      - name: Summarize actual result
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, os, pathlib
+          path = pathlib.Path('long-proof/certification.json')
+          result = json.loads(path.read_text()) if path.exists() else {'status':'UNKNOWN','reason':'No certification receipt; inspect failed steps'}
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
+              out.write('## K11122 retained target-0 branch-0\n\n')
+              out.write('Solver phase: 60 minutes; independent checker phase: up to 60 further minutes.\n\n')
+              out.write('```json\n' + json.dumps(result, indent=2) + '\n```\n\n')
+              out.write('SAT concerns only the finite CNF. A checked refutation covers only this branch. Neither alone classifies K11122.\n')
+          PY
+      - name: Preserve outputs and any proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: retained-t0-b0-proof-results
+          path: |
+            long-proof/*.json
+            long-proof/*.log
+            long-proof/*.drup
+            long-proof/resources.txt
+          if-no-files-found: warn
+          retention-days: 30
