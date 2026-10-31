@@ -9,7 +9,7 @@ policy is uploaded by this implementation.
 ## Launch
 The dedicated workflow runs automatically on changes to `k11122/` on main,
 and manually via **Actions → K11122 exact search → Run workflow**.
-The initial run launches two jobs, one per orbit, each with a 20-minute
+The continuation run launches four jobs, two disjoint branches per orbit, each with a 20-minute
 search budget and a 30-minute hard job limit. It does not recur indefinitely.
 Download the `k11122-target-*` Actions artifacts. Each contains checkpoints,
 progress, latest policy, full replay counts, hashes and solver diagnostics.
@@ -72,6 +72,41 @@ LIVE masks with lexicographically ordered edges, excluding 34 and 56.
 
 Tests cover complete small graphs and rejection of malformed policies.
 The full checker is used on every candidate, but correctness testing does not
-replace mathematical review of the encoder. Initial jobs are independent
-orbit tasks, not disjoint partitions of the policy space. No external secrets,
+replace mathematical review of the encoder. Within each orbit the two jobs partition one source action by its physical
+first hop. Both emitted bit values remain free in each branch. The union is
+exhaustive and the branches disjoint; no equivalence or symmetry is assumed. No external secrets,
 self-hosted runners, paid machine provisioning or infinite resubmission.
+
+
+
+## Continuation version (31 October 2026)
+The workflow imports the original run 41140359924 checkpoints (884 singleton
+residuals, 724 doubleton residuals), checks each checkpoint against its artifact
+SHA manifest, and reconstructs those obligations in every branch. It fails
+explicitly if baseline artifacts are missing/expired; it never silently starts
+from scratch. This workflow is pinned to that baseline: future continuation
+must explicitly select the next saved checkpoint(s). No infinite chaining.
+Artifacts expire after 30 days, so archive them before then.
+
+A timeout now triggers another bounded solver call with progressively longer
+limits (60,120,240,480,600 seconds) and deterministic recorded seeds, capped
+by the remaining search budget. It preserves the solver and its constraints.
+Other UNKNOWN reasons stop with diagnostics. This is a heuristic retry policy,
+not a guarantee that different seeds yield independent search trajectories.
+Formula construction and final export can extend beyond the search-call
+budget; the 30-minute Actions job limit is the outer bound. Four jobs imply
+at most 120 runner-minutes. No self-hosted machine is used.
+
+`--branch 0` and `--branch 1` divide the same selected two-neighbor source
+observation by outgoing neighbor; `--branch -1` leaves the space unpartitioned.
+Only unconditional residual masks are imported across branches, never a
+restricted UNSAT conclusion. A positive from either branch solves that orbit;
+negative claims need checked proofs for BOTH branches of an orbit. Raw solver
+UNSAT is still uncertified. No candidate invalidity proves nonexistence.
+
+Checkpoints now record branch definition, input hash, inherited count, retry
+reason and last candidate hash/failure count. Output directories must be empty.
+Every candidate must pass all already-enforced residuals or the runner fails
+with an encoder/checker disagreement. Tests additionally compare every
+normalized triangle policy against literal execution and check transient
+source revisits with unreachable cycles plus partition coverage/disjointness.
