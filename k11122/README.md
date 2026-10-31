@@ -83,9 +83,9 @@ self-hosted runners, paid machine provisioning or infinite resubmission.
 
 
 ## Continuation version (31 October 2026)
-The workflow merges both branch checkpoints from run 41170473396 separately
+The workflow merges both branch checkpoints from run 41176610833 separately
 for each destination orbit. The four original checkpoint files and their
-artifact provenance are retained in `checkpoints/run-41170473396/`, so this
+artifact provenance are retained in `checkpoints/run-41176610833/`, so this
 continuation does not depend on expiring Actions downloads. Original ZIPs
 passed their GitHub SHA-256 digests, all CRC checks and all per-file hashes
 before checkpoint extraction. The merger rechecks checkpoint hashes, model,

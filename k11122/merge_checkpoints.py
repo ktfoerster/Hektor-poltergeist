@@ -5,7 +5,7 @@ import json
 import pathlib
 
 MODEL = 'static-undirected/common-source-local/two-state'
-LATEST = pathlib.Path(__file__).parent / 'checkpoints/run-41170473396'
+LATEST = pathlib.Path(__file__).parent / 'checkpoints/run-41176610833'
 BACKENDS = {'python-sat==1.8.dev24/Cadical195',
             'python-sat==1.8.dev24/MapleChrono',
             'python-sat==1.8.dev24/Glucose42'}

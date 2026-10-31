@@ -19,10 +19,10 @@ jobs:
       max-parallel: 4
       matrix:
         include:
-          - {target: 0, branch: 0, backend: cadical195, seed: 20261101, phase: k11122/phase-seeds/t0-b0.tsv}
-          - {target: 0, branch: 1, backend: cadical195, seed: 20261102, phase: k11122/phase-seeds/t0-b1.tsv}
-          - {target: 3, branch: 0, backend: cadical195, seed: 20261131, phase: k11122/phase-seeds/t3-b0.tsv}
-          - {target: 3, branch: 1, backend: cadical195, seed: 20261132, phase: k11122/phase-seeds/t3-b1.tsv}
+          - {target: 0, branch: 0, backend: cadical195, seed: 20261201, phase: k11122/phase-seeds/t0-b0.tsv}
+          - {target: 0, branch: 1, backend: cadical195, seed: 20261202, phase: k11122/phase-seeds/t0-b1.tsv}
+          - {target: 3, branch: 0, backend: cadical195, seed: 20261231, phase: k11122/phase-seeds/t3-b0.tsv}
+          - {target: 3, branch: 1, backend: cadical195, seed: 20261232, phase: k11122/phase-seeds/t3-b1.tsv}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

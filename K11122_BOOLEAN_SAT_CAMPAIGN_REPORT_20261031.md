@@ -267,3 +267,42 @@ changes the search trajectory while preserving the exact 2,352/1,827-mask CNF
 and both emitted bits in every physical-first-hop branch. Any returned table
 still requires unchanged exhaustive replay; any timeout remains `UNKNOWN`.
 
+## Phase-guided hosted matrix 41176610833
+
+Run [`41176610833`](https://github.com/ktfoerster/Hektor-poltergeist/actions/runs/41176610833)
+completed all four jobs normally. All eighteen tests and all four committed
+phase-policy SHA-256 checks passed in every job. Phase guidance produced 30
+complete finite-suite candidates across all four branches; every one failed
+the unchanged exhaustive verifier, and the separate miner agreed on exact
+obligation and failure counts.
+
+| Target | Branch | Rejected candidates | Final masks | Variables | Clauses | Final candidate failures |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 0 | 5 | 2,432 | 1,109,956 | 4,200,623 | 72,031 / 2,979,236 |
+| 0 | 1 | 10 | 2,512 | 1,156,696 | 4,386,225 | 43,905 / 2,979,236 |
+| 3 | 0 | 3 | 1,875 | 1,075,518 | 4,231,891 | 160,548 / 2,937,186 |
+| 3 | 1 | 12 | 2,019 | 1,171,768 | 4,619,387 | 104,303 / 2,937,186 |
+
+Freshly compiled copies of `verify.cpp` and `counterexample_miner.cpp` replayed
+all four retained tables over 524,288 residual masks and reproduced the exact
+2,979,236 or 2,937,186 obligations plus the failure totals above. The strict
+cross-branch unions are 2,568 masks for target 0 and 2,053 for target 3, gains
+of 216 and 226 over the preceding 2,352/1,827 inputs. Only unconditional masks
+are merged; phase tables, branches, ranks, policies, and solver conclusions
+remain separate.
+
+Artifacts (retained through 30 November 2026):
+
+- [target 0, branch 0](https://github.com/ktfoerster/Hektor-poltergeist/actions/runs/41176610833/artifacts/13033838330), SHA-256 `850ad131beac6a72efb5a69bdcb4e3d0580d7ed775cdb92ec36d72705bdf483b`
+- [target 0, branch 1](https://github.com/ktfoerster/Hektor-poltergeist/actions/runs/41176610833/artifacts/13034150068), SHA-256 `93ca7f8b30c42a3d725ba2165344896f3dfd41486eefe03d0b2e7c6cfb79c8fc`
+- [target 3, branch 0](https://github.com/ktfoerster/Hektor-poltergeist/actions/runs/41176610833/artifacts/13033429585), SHA-256 `7ecbfdb30ca1e3947214b6a9b704c4367cdfd25950c3ee3d7d4f7fa48b058cd3`
+- [target 3, branch 1](https://github.com/ktfoerster/Hektor-poltergeist/actions/runs/41176610833/artifacts/13033319868), SHA-256 `36a2abc1bb659ec8e8b714fb8a0728133daac7ccfd1973dff6c4f29f6a8fe567`
+
+Relative to the same-input unphased hybrid matrix, phase guidance increased
+candidate discovery from eight to thirty and produced progress on every
+branch. This is a measured search improvement, not evidence of positivity or
+negativity. Every branch remains `UNKNOWN`; both target orbits and therefore
+the graph's one-bit classification remain unresolved. The latest four invalid
+tables now serve as phase hints for one final bounded continuation with fresh
+seeds and the stronger 2,568/2,053 unions.
+
