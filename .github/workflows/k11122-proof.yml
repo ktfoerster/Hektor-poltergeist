@@ -1,0 +1,32 @@
+name: K11122 proof pipeline validation
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'k11122/proof_cnf.py'
+      - 'k11122/test_proof_cnf.py'
+      - '.github/workflows/k11122-proof.yml'
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install python-sat==1.8.dev24 z3-solver==4.13.3.0
+      - run: python -m unittest discover -s k11122 -v
+      - name: Exercise bounded proof production and independent checking
+        run: |
+          mkdir proof-smoke
+          printf 'p cnf 2 4\n1 2 0\n1 -2 0\n-1 2 0\n-1 -2 0\n' > proof-smoke/formula.cnf
+          python k11122/proof_cnf.py certify --output proof-smoke --seconds 30
+          python -c "import json; assert json.load(open('proof-smoke/certification.json'))['status'] == 'CNF_UNSAT_RUP_VERIFIED'"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: proof-pipeline-validation
+          path: proof-smoke/
