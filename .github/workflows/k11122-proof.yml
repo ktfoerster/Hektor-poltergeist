@@ -5,6 +5,8 @@ on:
     paths:
       - 'k11122/proof_cnf.py'
       - 'k11122/test_proof_cnf.py'
+      - 'k11122/rup_watch.py'
+      - 'k11122/test_rup_watch.py'
       - '.github/workflows/k11122-proof.yml'
 permissions:
   contents: read
@@ -25,6 +27,8 @@ jobs:
           printf 'p cnf 2 4\n1 2 0\n1 -2 0\n-1 2 0\n-1 -2 0\n' > proof-smoke/formula.cnf
           python k11122/proof_cnf.py certify --output proof-smoke --seconds 30
           python -c "import json; assert json.load(open('proof-smoke/certification.json'))['status'] == 'CNF_UNSAT_RUP_VERIFIED'"
+      - name: Independently replay with reference propagation
+        run: python k11122/proof_cnf.py check --output proof-smoke --checker reference
       - uses: actions/upload-artifact@v4
         if: always()
         with:

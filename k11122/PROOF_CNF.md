@@ -42,9 +42,12 @@ The checker imports no SAT library. Each addition must be reverse-unit-propagati
 (RUP) redundant: assuming its negation must produce a contradiction by Boolean
 unit propagation. Deletion lines are ignored, retaining only original and
 already proved clauses; this is sound but can cost memory/time. RAT-only steps
-are rejected. This small reference checker repeatedly scans clauses and is not
-claimed scalable to the campaign's multi-million-clause instances. A large
-proof may need a separately validated optimized DRAT/LRAT checker. There is no
+are rejected. The default checker uses persistent two-watched-literal propagation, fresh
+assignments per RUP query, and streaming DIMACS/proof parsing. Use
+`--checker reference` to select the original full-scan implementation.
+Both are independent of the SAT solver. Large-instance proof throughput and
+peak memory are not yet established; retained deletion clauses can still
+consume substantial memory. RAT/LRAT support remains outside this implementation. There is no
 fallback that converts an unverified solver answer into a proof claim.
 
 A checked CNF refutation still depends on the correctness of the documented
@@ -62,3 +65,18 @@ proof, reject truncated/incorrect proofs and malformed DIMACS, and retain the
 existing semantic and corruption regression suite. The separate bounded GitHub
 workflow runs these tests and a solver-to-checker UNSAT smoke test. That fixture
 is a pipeline test, not a routing impossibility certificate.
+
+## Watched-literal validation
+
+The optimized propagator is compared against the reference on all 512 formulas
+over the nine non-tautological clauses on two variables, with ten candidate
+clauses per formula (5,120 queries), plus 10,000 seeded incremental queries over
+12 variables. Incremental tests retain proven additions and exercise persistent
+watch movement. Both engines check an actual Glucose3 pigeonhole refutation.
+Malformed deletion lines are rejected. The complete regression suite has
+24 tests. These checks provide implementation evidence, not a formal verification.
+
+The bounded pipeline clears stale certification/proof output before starting;
+the checker hashes inputs before and after verification and rejects changes.
+Results include the selected engine and the propagator source hash. Formula
+and proof parsing stream from disk, although clauses still reside in memory.

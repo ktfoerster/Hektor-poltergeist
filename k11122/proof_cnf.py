@@ -56,30 +56,38 @@ def export(output, target, masks, branch=-1, n=7):
     return metadata
 
 
-def read_cnf(path):
-    clauses, pending, header = [], [], None
-    for line in pathlib.Path(path).read_text().splitlines():
-        if not line.strip() or line.startswith('c'):
-            continue
-        if line.startswith('p '):
+def iter_cnf(path):
+    """Stream DIMACS and validate the header/count before successful EOF."""
+    count, pending, header = 0, [], None
+    with pathlib.Path(path).open() as source:
+        for line in source:
             fields = line.split()
-            if header is not None or len(fields) != 4 or fields[1] != 'cnf':
-                raise ValueError('invalid header')
-            header = tuple(map(int, fields[2:]))
-            continue
-        if header is None:
-            raise ValueError('missing header')
-        for value in map(int, line.split()):
-            if abs(value) > header[0]:
-                raise ValueError('literal out of bounds')
-            if value:
-                pending.append(value)
-            else:
-                clauses.append(set(pending))
-                pending = []
-    if header is None or pending or len(clauses) != header[1]:
+            if not fields or fields[0] == 'c':
+                continue
+            if fields[0] == 'p':
+                if header is not None or len(fields) != 4 or fields[1] != 'cnf':
+                    raise ValueError('invalid header')
+                header = tuple(map(int, fields[2:]))
+                if min(header) < 0:
+                    raise ValueError('negative header count')
+                continue
+            if header is None:
+                raise ValueError('missing header')
+            for value in map(int, fields):
+                if abs(value) > header[0]:
+                    raise ValueError('literal out of bounds')
+                if value:
+                    pending.append(value)
+                else:
+                    count += 1
+                    yield set(pending)
+                    pending = []
+    if header is None or pending or count != header[1]:
         raise ValueError('truncated formula')
-    return clauses
+
+
+def read_cnf(path):
+    return list(iter_cnf(path))
 
 
 def rup(clauses, candidate):
@@ -104,35 +112,51 @@ def rup(clauses, candidate):
             return False
 
 
-def check(cnf, proof):
-    clauses = read_cnf(cnf)
+def check(cnf, proof, engine='watched'):
+    initial_cnf, initial_proof = sha(cnf), sha(proof)
+    if engine == 'watched':
+        from rup_watch import WatchedRUP
+        database = WatchedRUP(iter_cnf(cnf))
+        propagate, add = database.rup, database.add
+    elif engine == 'reference':
+        clauses = read_cnf(cnf)
+        propagate, add = lambda clause: rup(clauses, clause), clauses.append
+    else:
+        raise ValueError('unknown checker engine')
     empty = False
     additions = 0
-    for line in pathlib.Path(proof).read_text().splitlines():
-        fields = line.split()
-        if not fields or fields[0] == 'c':
-            continue
-        # Ignoring deletions retains only original/proven clauses, so is sound.
-        if fields[0] == 'd':
-            continue
-        values = list(map(int, fields))
-        if not values or values[-1] != 0 or 0 in values[:-1]:
-            raise ValueError('invalid proof line')
-        clause = set(values[:-1])
-        if not rup(clauses, clause):
-            raise ValueError('addition is not RUP (RAT-only steps are unsupported)')
-        clauses.append(clause)
-        additions += 1
-        empty |= not clause
+    with pathlib.Path(proof).open() as source:
+        for line in source:
+            fields = line.split()
+            if not fields or fields[0] == 'c':
+                continue
+            deletion = fields[0] == 'd'
+            values = list(map(int, fields[1:] if deletion else fields))
+            if not values or values[-1] != 0 or 0 in values[:-1]:
+                raise ValueError('invalid proof line')
+            if deletion:
+                continue  # retain only original/proven clauses: sound
+            clause = set(values[:-1])
+            if not propagate(clause):
+                raise ValueError('addition is not RUP (RAT-only steps are unsupported)')
+            add(clause)
+            additions += 1
+            empty |= not clause
     if not empty:
         raise ValueError('proof has no checked empty clause')
-    return dict(status='CNF_UNSAT_RUP_VERIFIED', additions=additions,
-                cnf_sha256=sha(cnf), proof_sha256=sha(proof), checker_sha256=sha(__file__))
+    if initial_cnf != sha(cnf) or initial_proof != sha(proof):
+        raise ValueError('input changed during verification')
+    result = dict(status='CNF_UNSAT_RUP_VERIFIED', additions=additions,
+                  engine=engine, cnf_sha256=initial_cnf, proof_sha256=initial_proof,
+                  checker_sha256=sha(__file__))
+    if engine == 'watched':
+        result['propagator_sha256'] = sha(pathlib.Path(__file__).with_name('rup_watch.py'))
+    return result
 
 
 def solve(cnf, proof):
     from pysat.solvers import Solver
-    with Solver(name='glucose3', bootstrap_with=[sorted(c) for c in read_cnf(cnf)],
+    with Solver(name='glucose3', bootstrap_with=(sorted(c) for c in iter_cnf(cnf)),
                 with_proof=True) as solver:
         if solver.solve():
             return 'SAT_FINITE_CNF'
@@ -147,6 +171,7 @@ def main():
     p.add_argument('--checkpoint', type=pathlib.Path)
     p.add_argument('--target', type=int, choices=[0, 3])
     p.add_argument('--branch', type=int, choices=[-1, 0, 1], default=-1)
+    p.add_argument('--checker', choices=['watched', 'reference'], default='watched')
     p.add_argument('--seconds', type=int, default=60)
     a = p.parse_args()
     if not 1 <= a.seconds <= 3600:
@@ -160,13 +185,15 @@ def main():
     elif a.mode == 'solve':
         print(solve(cnf, proof))
     elif a.mode == 'check':
-        print(json.dumps(check(cnf, proof), sort_keys=True))
+        print(json.dumps(check(cnf, proof, a.checker), sort_keys=True))
     else:
         # Each child is bounded and subprocess.run kills and joins on timeout.
         result = {'status': 'UNKNOWN', 'cnf_sha256': sha(cnf)}
+        (a.output / 'certification.json').write_text(json.dumps(result))
+        proof.unlink(missing_ok=True)
         for phase in ['solve', 'check']:
             try:
-                child = subprocess.run([sys.executable, __file__, phase, '--output', str(a.output)],
+                child = subprocess.run([sys.executable, __file__, phase, '--output', str(a.output), '--checker', a.checker],
                                        capture_output=True, text=True, timeout=a.seconds)
                 (a.output / (phase + '.log')).write_text(child.stdout + child.stderr)
                 if child.returncode:
