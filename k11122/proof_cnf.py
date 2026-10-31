@@ -159,6 +159,7 @@ def solve(cnf, proof):
     with Solver(name='glucose3', bootstrap_with=(sorted(c) for c in iter_cnf(cnf)),
                 with_proof=True) as solver:
         if solver.solve():
+            pathlib.Path(proof).with_name('model.json').write_text(json.dumps(solver.get_model()))
             return 'SAT_FINITE_CNF'
         pathlib.Path(proof).write_text('\n'.join(solver.get_proof()) + '\n')
         return 'UNSAT_UNCERTIFIED'
@@ -191,6 +192,7 @@ def main():
         result = {'status': 'UNKNOWN', 'cnf_sha256': sha(cnf)}
         (a.output / 'certification.json').write_text(json.dumps(result))
         proof.unlink(missing_ok=True)
+        (a.output / 'model.json').unlink(missing_ok=True)
         for phase in ['solve', 'check']:
             try:
                 child = subprocess.run([sys.executable, __file__, phase, '--output', str(a.output), '--checker', a.checker],

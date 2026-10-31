@@ -1,0 +1,47 @@
+name: K11122 exhaustive four-case pilot
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/k11122-split.yml'
+permissions:
+  contents: read
+jobs:
+  split:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        case: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install python-sat==1.8.dev24 z3-solver==4.13.3.0
+      - run: python -m unittest discover -s k11122 -v
+      - name: Export and split retained parent
+        run: |
+          python k11122/proof_cnf.py export --target 0 --branch 0 --checkpoint k11122/checkpoints/run-41180021309/t0-b0.json --output parent
+          python -c "import json; assert json.load(open('parent/export.json'))['cnf_sha256']=='61c1ea4f4b0dbdd2d49393336ea2c964cd1c62f3eafab9f29456e7e8c5751af5'"
+          python k11122/split_cnf.py split --root parent --output case --case ${{ matrix.case }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: split-input-${{ matrix.case }}
+          path: case/
+          retention-days: 30
+      - name: Bounded solve and proof check
+        run: python k11122/proof_cnf.py certify --output case --seconds 1200
+      - name: Check and replay any SAT model
+        run: python k11122/split_cnf.py decode --root case
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: split-result-${{ matrix.case }}
+          path: |
+            case/*.json
+            case/*.drup
+            case/*.tsv
+            case/*.log
+          retention-days: 30
