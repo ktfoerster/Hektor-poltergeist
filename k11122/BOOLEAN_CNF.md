@@ -60,7 +60,12 @@ worker misses it, only that worker is terminated; the exact parent formula is
 retained and a fresh worker can be forked, though the killed worker's learned
 clauses are lost. A SAT worker returns a complete legal table, which the
 unchanged C++ program replays on all 524,288 residuals and all connected
-nonself sources.
+nonself sources. Rejected candidates are also replayed by
+`counterexample_miner.cpp`. The miner keeps the 16 failing residuals with the
+lowest fixed SplitMix64 priorities instead of the first 16 numeric masks; the
+runner aborts unless its exact obligation and failure counts agree with the
+unchanged verifier. These masks are only CEGIS obligations and do not replace
+the verifier or constitute a negative certificate.
 
 An `UNSAT_UNCERTIFIED` result is not an impossibility result: this campaign
 does not emit and independently check DRAT/LRAT. Likewise, timeout, OOM, or an
@@ -82,4 +87,6 @@ the prior SMT encoding, and literal walks. They also cover exact-one selectors,
 all guarded-comparator boundary values through three bits, shared injection,
 disconnected cases, both target orbits, transient source revisits, unreachable
 loops, branch coverage/disjointness with both emitted bits, checkpoint
-corruption, and the independent verifier's malformed-policy rejection.
+corruption, the independent verifier's malformed-policy rejection, and exact
+verifier/miner agreement with literal replay of every selected residual on a
+failing four-vertex policy.

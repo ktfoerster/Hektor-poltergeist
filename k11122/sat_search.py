@@ -412,6 +412,10 @@ def main():
     binary = output / "verify"
     subprocess.run(["g++", "-O3", "-std=c++17", str(source_dir / "verify.cpp"),
                     "-o", str(binary)], check=True)
+    miner = output / "counterexample_miner"
+    subprocess.run(["g++", "-O3", "-std=c++17",
+                    str(source_dir / "counterexample_miner.cpp"),
+                    "-o", str(miner)], check=True)
     encoding = BooleanEncoding(7, args.target)
     split = partition(encoding, args.branch)
     masks = [(1 << 19) - 1] + [((1 << 19) - 1) ^ (1 << i) for i in range(19)]
@@ -421,7 +425,8 @@ def main():
     status, stage, reason = "UNKNOWN", "constructing", ""
     iteration, last_candidate, last_worker = 0, None, None
     source_hashes = {name: file_sha256(source_dir / name) for name in
-                     ("sat_search.py", "verify.cpp", "merge_checkpoints.py")}
+                     ("sat_search.py", "verify.cpp", "counterexample_miner.cpp",
+                      "merge_checkpoints.py")}
 
     def checkpoint():
         data = {
@@ -461,7 +466,7 @@ def main():
             last_worker = child_summary
             record = {
                 "iteration": iteration, "residuals": len(encoding.masks),
-                "solver": "SAT" if result is True else "UNSAT" if result is False else "UNKNOWN",
+                "outcome": "SAT" if result is True else "UNSAT" if result is False else "UNKNOWN",
                 "limit_seconds": limit, "conflict_budget": args.conflicts,
                 "solve_seconds": time.monotonic() - before,
                 "elapsed_seconds": time.monotonic() - started,
@@ -485,7 +490,8 @@ def main():
             replay = subprocess.run([str(binary), str(output / "candidate.tsv")], check=True,
                                     capture_output=True, text=True, timeout=180)
             audit = json.loads(replay.stdout)
-            (output / "verification.json").write_text(json.dumps(audit, indent=2, sort_keys=True))
+            (output / f"verification-{iteration}.json").write_text(
+                json.dumps(audit, indent=2, sort_keys=True))
             expected = 2979236 if args.target == 0 else 2937186
             if audit["masks"] != 524288 or audit["obligations"] != expected:
                 raise RuntimeError("incomplete independent verification")
@@ -494,12 +500,25 @@ def main():
                 "failures": audit["failures"],
             }
             if not audit["failures"]:
+                (output / "verification.json").write_text(
+                    json.dumps(audit, indent=2, sort_keys=True))
                 status, stage, reason = "VERIFIED_POSITIVE", "verified", ""
                 checkpoint()
                 break
-            if not audit["counterexamples"] or any(mask in encoding.masks for mask in audit["counterexamples"]):
+            mined_replay = subprocess.run(
+                [str(miner), str(output / "candidate.tsv")], check=True,
+                capture_output=True, text=True, timeout=180)
+            mined = json.loads(mined_replay.stdout)
+            (output / f"counterexamples-{iteration}.json").write_text(
+                json.dumps(mined, indent=2, sort_keys=True))
+            if (mined.get("masks") != audit["masks"] or
+                    mined.get("obligations") != audit["obligations"] or
+                    mined.get("failures") != audit["failures"] or
+                    not mined.get("counterexamples")):
+                raise RuntimeError("independent verifier/miner disagreement")
+            if any(mask in encoding.masks for mask in mined["counterexamples"]):
                 raise RuntimeError("encoder/checker disagreement: candidate fails enforced residual")
-            for mask in audit["counterexamples"]:
+            for mask in mined["counterexamples"]:
                 encoding.add(mask)
             checkpoint()
         stage = "finished"
@@ -507,7 +526,8 @@ def main():
     finally:
         encoding.delete()
     hashes = {path.name: file_sha256(path) for path in output.iterdir()
-              if path.is_file() and path.name not in ("SHA256.json", "verify")}
+              if path.is_file() and path.name not in
+              ("SHA256.json", "verify", "counterexample_miner")}
     (output / "SHA256.json").write_text(json.dumps(hashes, indent=2, sort_keys=True))
     print(json.dumps({"status": status, "iterations": iteration,
                       "residuals": len(encoding.masks), "partition": split}), flush=True)

@@ -1,11 +1,14 @@
 import itertools
+import json
 import pathlib
+import subprocess
 import tempfile
 import unittest
 
 import z3
 
-from sat_search import BooleanEncoding, adjacency, graph, partition, vertices
+from sat_search import (BooleanEncoding, adjacency, graph, partition, vertices,
+                        write_policy)
 from search import Encoding
 
 
@@ -29,6 +32,23 @@ def literal_policy_succeeds(n, target, rows):
                 u, incoming, bit = action // 2, u, action % 2
             if u != target:
                 return False
+    return True
+
+
+def literal_mask_succeeds(n, target, rows, mask):
+    adj = adjacency(n, graph(n), mask)
+    connected = {target}
+    for _ in range(n):
+        connected |= {v for u in list(connected) for v in vertices(adj[u], n)}
+    for source in connected - {target}:
+        u, incoming, bit = source, -1, 0
+        seen = set()
+        while u != target and (u, incoming, bit) not in seen:
+            seen.add((u, incoming, bit))
+            action = rows[(u, adj[u], incoming, bit)]
+            u, incoming, bit = action // 2, u, action % 2
+        if u != target:
+            return False
     return True
 
 
@@ -79,6 +99,38 @@ class BooleanPrimitiveTests(unittest.TestCase):
 
 
 class DifferentialTests(unittest.TestCase):
+    def test_miner_agrees_with_unchanged_verifier_and_literal_walks(self):
+        n, target = 4, 0
+        encoding = BooleanEncoding(n, target)
+        rows = {}
+        for key in encoding.rows:
+            live = key[1]
+            neighbor = target if live >> target & 1 else vertices(live, n)[0]
+            rows[key] = 2 * neighbor
+        encoding.delete()
+        source = pathlib.Path(__file__).parent
+        with tempfile.TemporaryDirectory() as directory:
+            directory = pathlib.Path(directory)
+            policy = directory / "policy.tsv"
+            write_policy(policy, n, target, rows)
+            results = []
+            for name in ("verify", "counterexample_miner"):
+                binary = directory / name
+                subprocess.run(
+                    ["g++", "-O2", "-std=c++17", str(source / f"{name}.cpp"),
+                     "-o", str(binary)], check=True)
+                run = subprocess.run([str(binary), str(policy)], check=True,
+                                     capture_output=True, text=True)
+                results.append(json.loads(run.stdout))
+            verifier, miner = results
+            self.assertEqual(miner["masks"], verifier["masks"])
+            self.assertEqual(miner["obligations"], verifier["obligations"])
+            self.assertEqual(miner["failures"], verifier["failures"])
+            self.assertGreater(miner["failures"], 0)
+            self.assertTrue(miner["counterexamples"])
+            for mask in miner["counterexamples"]:
+                self.assertFalse(literal_mask_succeeds(n, target, rows, mask))
+
     def test_all_triangle_bit_policies_against_smt_and_walks(self):
         n, target = 3, 0
         smt = Encoding(n, target)

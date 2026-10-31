@@ -5,7 +5,7 @@ import json
 import pathlib
 
 MODEL = 'static-undirected/common-source-local/two-state'
-LATEST = pathlib.Path(__file__).parent / 'checkpoints/run-41164233786'
+LATEST = pathlib.Path(__file__).parent / 'checkpoints/run-41166640954'
 
 def merge(root, target):
     masks = set()
