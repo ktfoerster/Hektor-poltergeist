@@ -83,9 +83,9 @@ self-hosted runners, paid machine provisioning or infinite resubmission.
 
 
 ## Continuation version (31 October 2026)
-The workflow merges both branch checkpoints from run 41168770051 separately
+The workflow merges both branch checkpoints from run 41170473396 separately
 for each destination orbit. The four original checkpoint files and their
-artifact provenance are retained in `checkpoints/run-41168770051/`, so this
+artifact provenance are retained in `checkpoints/run-41170473396/`, so this
 continuation does not depend on expiring Actions downloads. Original ZIPs
 passed their GitHub SHA-256 digests, all CRC checks and all per-file hashes
 before checkpoint extraction. The merger rechecks checkpoint hashes, model,
@@ -114,7 +114,10 @@ at most 120 runner-minutes. No self-hosted machine is used.
 
 The preceding retry paragraph describes the retained SMT baseline in
 `search.py`. The active CNF runner uses deterministic conflict-bounded slices
-in one owned persistent CaDiCaL worker. Learned clauses survive an ordinary
+in one owned persistent SAT worker. `--backend cadical195` retains the seeded
+CaDiCaL path; `--backend maplechrono` runs a second solver implementation on
+the byte-identical CNF. MapleChrono has no PySAT-exposed seed and is
+deterministic for fixed clause order. Learned clauses survive an ordinary
 conflict-slice UNKNOWN and new counterexample clauses are streamed into the
 same process. A separate parent wall bound can still terminate a stuck worker;
 a replacement then inherits the exact formula but not the killed process's
@@ -138,3 +141,4 @@ Every candidate must pass all already-enforced residuals or the runner fails
 with an encoder/checker disagreement. Tests additionally compare every
 normalized triangle policy against literal execution and check transient
 source revisits with unreachable cycles plus partition coverage/disjointness.
+

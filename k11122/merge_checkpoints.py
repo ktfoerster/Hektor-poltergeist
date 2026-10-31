@@ -5,7 +5,9 @@ import json
 import pathlib
 
 MODEL = 'static-undirected/common-source-local/two-state'
-LATEST = pathlib.Path(__file__).parent / 'checkpoints/run-41168770051'
+LATEST = pathlib.Path(__file__).parent / 'checkpoints/run-41170473396'
+BACKENDS = {'python-sat==1.8.dev24/Cadical195',
+            'python-sat==1.8.dev24/MapleChrono'}
 
 def merge(root, target):
     masks = set()
@@ -29,7 +31,7 @@ def merge(root, target):
         if (cp.get('schema') not in (2, 3) or cp.get('target') != target or
                 cp.get('model') != MODEL or cp.get('partition', {}).get('branch') != branch):
             raise ValueError('checkpoint model/target/branch mismatch')
-        if cp.get('schema') == 3 and cp.get('backend') != 'python-sat==1.8.dev24/Cadical195':
+        if cp.get('schema') == 3 and cp.get('backend') not in BACKENDS:
             raise ValueError('checkpoint backend mismatch')
         values = cp.get('masks')
         if (not isinstance(values, list) or not values or
@@ -65,3 +67,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

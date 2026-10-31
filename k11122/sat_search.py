@@ -2,7 +2,7 @@
 
 The policy variables are global one-hot selectors.  Per residual, ``good``
 and binary-rank variables are certificate variables only; they are not packet
-state.  Every clause is streamed to CaDiCaL, while a deterministic clause
+state.  Every clause is streamed to a pinned SAT backend, while a deterministic clause
 fingerprint makes the exact rebuilt instance auditable without storing a very
 large DIMACS file.
 """
@@ -17,10 +17,12 @@ import subprocess
 import time
 
 import pysat
-from pysat.solvers import Cadical195
+from pysat.solvers import Solver
 
 
-DEPENDENCY = "python-sat==1.8.dev24/Cadical195"
+PYSAT_PIN = "python-sat==1.8.dev24"
+BACKENDS = ("cadical195", "maplechrono")
+BACKEND_LABELS = {"cadical195": "Cadical195", "maplechrono": "MapleChrono"}
 
 
 def graph(n):
@@ -44,11 +46,17 @@ def vertices(mask, n):
 class BooleanEncoding:
     """Incremental CNF with exact global policy selectors and local proofs."""
 
-    def __init__(self, n, target, seed=20261031):
+    def __init__(self, n, target, seed=20261031, backend="cadical195"):
         self.n, self.t, self.edges = n, target, graph(n)
-        self.solver = Cadical195()
-        # CaDiCaL is deterministic for this fixed seed and fixed clause order.
-        self.solver.configure({"seed": seed})
+        if backend not in BACKENDS:
+            raise ValueError(f"unsupported backend: {backend}")
+        self.backend = backend
+        self.solver = Solver(name=backend)
+        # CaDiCaL exposes a seed parameter. MapleChrono does not expose a
+        # random seed through PySAT and is deterministic for fixed clause order.
+        self.seed_effective = backend == "cadical195"
+        if self.seed_effective:
+            self.solver.configure({"seed": seed})
         self.seed = seed
         self.top = 0
         self.clause_count = 0
@@ -237,7 +245,7 @@ class BooleanEncoding:
 
     def _start_worker(self):
         if "fork" not in multiprocessing.get_all_start_methods():
-            raise RuntimeError("bounded CaDiCaL execution requires POSIX fork")
+            raise RuntimeError("bounded SAT execution requires POSIX fork")
         context = multiprocessing.get_context("fork")
         parent_pipe, child_pipe = context.Pipe()
         self._worker_generation += 1
@@ -251,7 +259,7 @@ class BooleanEncoding:
     def solve_for(self, seconds, result_path, conflict_budget=200000):
         """Run one bounded slice in a persistent owned solver process.
 
-        CaDiCaL's conflict budget provides frequent checkpoint opportunities,
+        The backend's conflict budget provides frequent checkpoint opportunities,
         while the parent still enforces an independent wall bound.  A worker
         that returns UNKNOWN remains alive, retaining learned clauses for the
         next slice.  Clauses added after a rejected candidate are streamed to
@@ -284,12 +292,12 @@ class BooleanEncoding:
             exitcode = self._worker.exitcode
             self._stop_worker()
             raise RuntimeError(
-                f"CaDiCaL worker failed with exit code {exitcode}") from error
+                f"SAT worker failed with exit code {exitcode}") from error
         temporary = result_path.with_suffix(result_path.suffix + ".tmp")
         temporary.write_text(json.dumps(payload, sort_keys=True))
         temporary.replace(result_path)
         if "error" in payload:
-            raise RuntimeError(f"CaDiCaL worker error: {payload['error']}")
+            raise RuntimeError(f"SAT worker error: {payload['error']}")
         return payload["result"], payload
 
     def policy(self):
@@ -310,7 +318,7 @@ class BooleanEncoding:
             "variables": self.top,
             "clauses": self.clause_count,
             "formula_sha256": self.fingerprint.copy().hexdigest(),
-            "solver": self.solver.accum_stats(),
+            "solver": self.solver.accum_stats(), "solver_backend": self.backend,
         }
 
 
@@ -394,7 +402,9 @@ def main():
     parser.add_argument("--seconds", type=int, default=1200)
     parser.add_argument("--solve-seconds", type=int, default=1200)
     parser.add_argument("--conflicts", type=int, default=200000,
-                        help="CaDiCaL conflicts per checkpointable solve slice")
+                        help="backend conflicts per checkpointable solve slice")
+    parser.add_argument("--backend", choices=BACKENDS, default="cadical195",
+                        help="pinned PySAT backend; formula semantics are identical")
     parser.add_argument("--branch", type=int, choices=(-1, 0, 1), default=-1)
     parser.add_argument("--output", type=pathlib.Path, required=True)
     parser.add_argument("--resume", type=pathlib.Path)
@@ -416,7 +426,7 @@ def main():
     subprocess.run(["g++", "-O3", "-std=c++17",
                     str(source_dir / "counterexample_miner.cpp"),
                     "-o", str(miner)], check=True)
-    encoding = BooleanEncoding(7, args.target)
+    encoding = BooleanEncoding(7, args.target, backend=args.backend)
     split = partition(encoding, args.branch)
     masks = [(1 << 19) - 1] + [((1 << 19) - 1) ^ (1 << i) for i in range(19)]
     if args.resume:
@@ -436,9 +446,11 @@ def main():
             "reason": reason, "last_candidate": last_candidate,
             "last_worker": last_worker,
             "elapsed_seconds": time.monotonic() - started,
-            "backend": DEPENDENCY, "pysat": pysat.__version__,
+            "backend": f"{PYSAT_PIN}/{BACKEND_LABELS[args.backend]}",
+            "pysat": pysat.__version__,
             "commit": os.environ.get("GITHUB_SHA"),
-            "seed": encoding.seed, "model": "static-undirected/common-source-local/two-state",
+            "seed": encoding.seed, "seed_effective": encoding.seed_effective,
+            "model": "static-undirected/common-source-local/two-state",
             "resume_sha256": file_sha256(args.resume) if args.resume else None,
             "source_sha256": source_hashes, **encoding.statistics(),
         }
@@ -482,7 +494,7 @@ def main():
                 checkpoint()
                 continue
             if result is False:
-                status, reason = "UNSAT_UNCERTIFIED", "CaDiCaL result has no independently checked proof"
+                status, reason = "UNSAT_UNCERTIFIED", "SAT result has no independently checked proof"
                 checkpoint()
                 break
             rows = {tuple(item[:4]): item[4] for item in solve_payload["rows"]}
@@ -535,3 +547,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

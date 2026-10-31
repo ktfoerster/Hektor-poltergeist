@@ -48,10 +48,13 @@ disconnected source-target pairs are all retained.
 
 ## Reproducibility and interpretation
 
-The pinned backend is `python-sat==1.8.dev24` with `Cadical195`. Clauses are
-emitted in deterministic order with seed `20261031`; checkpoints record the
+The pinned package is `python-sat==1.8.dev24`. The supported backends are
+`Cadical195` and `MapleChrono`; both receive the identical clause stream.
+CaDiCaL uses seed `20261031`. MapleChrono exposes no seed through PySAT and is
+deterministic for fixed clause order. Checkpoints record whether the seed is
+effective, the backend, and the
 variable count, clause count, exact clause-stream SHA-256, source hashes,
-resume hash, branch, dependency version, and solver outcome. CaDiCaL runs in
+resume hash, branch, dependency version, and solver outcome. The backend runs in
 an owned persistent worker. Each `solve_limited` call has a deterministic
 conflict budget; an UNKNOWN worker stays alive so its learned clauses survive
 the next slice, and clauses for newly found counterexamples are streamed to
@@ -91,3 +94,4 @@ loops, branch coverage/disjointness with both emitted bits, checkpoint
 corruption, the independent verifier's malformed-policy rejection, and exact
 verifier/miner agreement with literal replay of every selected residual on a
 failing four-vertex policy.
+

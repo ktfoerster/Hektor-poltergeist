@@ -164,3 +164,55 @@ then differentially test that every returned mask really rejects the candidate.
 This preserves unrestricted semantics while testing whether broader clauses
 reduce candidate churn. A negative claim still requires checked DRAT/LRAT for
 both branches; timeouts and invalid candidates remain non-results.
+
+## Hybrid counterexample matrix 41170473396
+
+The hybrid first-eight/hash-eight miner run
+[`41170473396`](https://github.com/ktfoerster/Hektor-poltergeist/actions/runs/41170473396)
+completed all four jobs normally. All sixteen tests passed in each job. The
+four artifact ZIP SHA-256 values match GitHub's recorded digests, every
+internal manifest entry verifies, and freshly compiled independent binaries
+reproduced the exact exhaustive replay counts.
+
+| Target | Branch | Rejected candidates | Final masks | Variables | Clauses | Final candidate failures |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 0 | 0 | 2,272 | 1,010,672 | 3,803,311 | no candidate |
+| 0 | 1 | 5 | 2,352 | 1,057,908 | 3,990,263 | 48,912 / 2,979,236 |
+| 3 | 0 | 0 | 1,779 | 1,007,606 | 3,952,633 | no candidate |
+| 3 | 1 | 3 | 1,827 | 1,040,610 | 4,087,819 | 150,813 / 2,937,186 |
+
+All outcomes are `UNKNOWN`. The strict orbit unions increased by 80 masks for
+target 0 and 48 for target 3, to 2,352 and 1,827. The final target-0 and
+target-3 candidates were replayed over all 524,288 residuals and still fail;
+the smaller failure counts do not imply proximity to a valid policy.
+
+Artifacts (retained through 30 November 2026):
+
+- [target 0, branch 0](https://github.com/ktfoerster/Hektor-poltergeist/actions/runs/41170473396/artifacts/13031645204), SHA-256 `a3fc06fa6d7838e9ca6fec469266ade022237f11dc5be66e8903c65d2d0d3dec`
+- [target 0, branch 1](https://github.com/ktfoerster/Hektor-poltergeist/actions/runs/41170473396/artifacts/13031138748), SHA-256 `95af4997af7369f60442daa8ad87410a862b88d197ba0e68bca70a74345a6871`
+- [target 3, branch 0](https://github.com/ktfoerster/Hektor-poltergeist/actions/runs/41170473396/artifacts/13030589921), SHA-256 `ef3d141439bc238eb4429be8b94f35ea8afa5f2a55697a0cadc8cb4ed1c9f72b`
+- [target 3, branch 1](https://github.com/ktfoerster/Hektor-poltergeist/actions/runs/41170473396/artifacts/13031407324), SHA-256 `e86712727477e631e2c2f40993a7756bb54e59579bf696d4de36ebf68346e6df`
+
+The exact branch checkpoints and provenance are preserved under
+`k11122/checkpoints/run-41170473396/`; the merger imports only unconditional
+residual masks. The next matrix uses their strict 2,352/1,827-mask unions.
+
+## Second pinned SAT backend
+
+The CNF runner now accepts `--backend cadical195` or
+`--backend maplechrono`. Both backends receive the byte-identical clause
+stream; the checkpoint records the canonical pinned backend and whether its
+seed is effective. Differential tests cover identical formula fingerprints,
+exhaustive triangle semantics, model extraction, and streamed clauses in a
+persistent worker for both solvers. Seventeen tests pass locally.
+
+A simultaneous 90-second smoke comparison on the exact 2,352-mask target-0
+branch-0 input built 1,057,908 variables and 3,990,263 clauses with formula
+SHA-256 `a976e5fa877e464491d0c90096b55c6eaccdbd71ffdcd573cf55926d3c862f79`
+for both backends. MapleChrono completed two 200,000-conflict slices; CaDiCaL
+did not complete the first before the parent wall bound. Shared-host contention
+makes this a pipeline result, not a controlled speedup claim. The next bounded
+four-job hosted matrix therefore tests MapleChrono on the same preserved
+constraints. No solver timeout or uncertified result changes the scientific
+status: both one-bit orbits remain unresolved and the 2–3-state bounds stand.
+

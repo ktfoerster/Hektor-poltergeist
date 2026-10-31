@@ -53,6 +53,20 @@ def literal_mask_succeeds(n, target, rows, mask):
 
 
 class BooleanPrimitiveTests(unittest.TestCase):
+    def test_backends_build_identical_cnf_and_models(self):
+        fingerprints = []
+        for backend in ("cadical195", "maplechrono"):
+            encoding = BooleanEncoding(3, 0, backend=backend)
+            for mask in range(1 << len(graph(3))):
+                encoding.add(mask)
+            self.assertTrue(encoding.solver.solve())
+            rows = encoding.policy()
+            self.assertTrue(literal_policy_succeeds(3, 0, rows))
+            fingerprints.append((encoding.top, encoding.clause_count,
+                                 encoding.statistics()["formula_sha256"]))
+            encoding.delete()
+        self.assertEqual(fingerprints[0], fingerprints[1])
+
     def test_guarded_comparator_boundaries(self):
         encoding = BooleanEncoding(2, 0)
         lesser = [encoding.new_var() for _ in range(3)]
@@ -82,20 +96,21 @@ class BooleanPrimitiveTests(unittest.TestCase):
         encoding.delete()
 
     def test_persistent_worker_receives_new_clauses(self):
-        encoding = BooleanEncoding(2, 0)
-        key = (1, 1, -1, 0)
-        selected = encoding.selector(key, 0)
-        with tempfile.TemporaryDirectory() as directory:
-            first, first_payload = encoding.solve_for(
-                5, pathlib.Path(directory) / "first.json", 100)
-            self.assertTrue(first)
-            encoding.add_clause((-selected,))
-            second, second_payload = encoding.solve_for(
-                5, pathlib.Path(directory) / "second.json", 100)
-            self.assertFalse(second)
-            self.assertEqual(first_payload["worker_pid"], second_payload["worker_pid"])
-            self.assertEqual(second_payload["clauses_added"], 1)
-        encoding.delete()
+        for backend in ("cadical195", "maplechrono"):
+            encoding = BooleanEncoding(2, 0, backend=backend)
+            key = (1, 1, -1, 0)
+            selected = encoding.selector(key, 0)
+            with tempfile.TemporaryDirectory() as directory:
+                first, first_payload = encoding.solve_for(
+                    5, pathlib.Path(directory) / "first.json", 100)
+                self.assertTrue(first)
+                encoding.add_clause((-selected,))
+                second, second_payload = encoding.solve_for(
+                    5, pathlib.Path(directory) / "second.json", 100)
+                self.assertFalse(second)
+                self.assertEqual(first_payload["worker_pid"], second_payload["worker_pid"])
+                self.assertEqual(second_payload["clauses_added"], 1)
+            encoding.delete()
 
 
 class DifferentialTests(unittest.TestCase):
@@ -208,3 +223,4 @@ class DifferentialTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
