@@ -8,17 +8,20 @@ policy is uploaded by this implementation.
 
 ## Launch
 The dedicated workflow runs automatically on changes to `k11122/` on main,
-and manually via **Actions → K11122 exact search → Run workflow**.
-The continuation run launches four jobs, two disjoint branches per orbit, each with a 20-minute
-search budget and a 30-minute hard job limit. It does not recur indefinitely.
-Download the `k11122-target-*` Actions artifacts. Each contains checkpoints,
+and manually via **Actions → K11122 Boolean SAT search → Run workflow**.
+The current continuation uses the Boolean encoding documented in
+[`BOOLEAN_CNF.md`](BOOLEAN_CNF.md). It launches four jobs, two disjoint
+branches per orbit, each with a 20-minute search budget and a 30-minute hard
+job limit. It does not recur indefinitely. Download the `k11122-cnf-target-*`
+Actions artifacts. Each contains checkpoints,
 progress, latest policy, full replay counts, hashes and solver diagnostics.
 
-Local: install Python 3.12, g++ and `z3-solver==4.13.3.0`, then:
+Local: install Python 3.12, g++, `z3-solver==4.13.3.0`, and
+`python-sat==1.8.dev24`, then:
 ```
 python -m unittest discover -s k11122 -v
-python k11122/search.py --target 0 --seconds 1200 --output results/t0
-python k11122/search.py --target 3 --seconds 1200 --output results/t3
+python k11122/sat_search.py --target 0 --seconds 1200 --output results/t0
+python k11122/sat_search.py --target 3 --seconds 1200 --output results/t3
 ```
 Resume by adding `--resume results/t0/checkpoint.json` and using a NEW output
 directory. This rebuilds the accumulated exact constraints; it is not a
@@ -107,6 +110,13 @@ not a guarantee that different seeds yield independent search trajectories.
 Formula construction and final export can extend beyond the search-call
 budget; the 30-minute Actions job limit is the outer bound. Four jobs imply
 at most 120 runner-minutes. No self-hosted machine is used.
+
+The preceding retry paragraph describes the retained SMT baseline in
+`search.py`. The active CNF runner makes one wall-clock-bounded CaDiCaL attempt
+in an owned child process and does not restart a timed-out formula. If SAT
+produces an invalid exhaustive-replay candidate, its counterexamples are added
+and the next solve uses a strictly stronger formula. See `BOOLEAN_CNF.md` for
+the exact clauses and differential tests.
 
 `--branch 0` and `--branch 1` divide the same selected two-neighbor source
 observation by outgoing neighbor; `--branch -1` leaves the space unpartitioned.

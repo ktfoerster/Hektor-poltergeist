@@ -1,4 +1,4 @@
-name: K11122 exact search
+name: K11122 Boolean SAT search
 on:
   workflow_dispatch:
   push:
@@ -25,22 +25,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install solver
-        run: python -m pip install z3-solver==4.13.3.0
+      - name: Install pinned solvers
+        run: python -m pip install z3-solver==4.13.3.0 python-sat==1.8.dev24
       - name: Test semantics and partition coverage
         run: python -m unittest discover -s k11122 -p 'test_*.py' -v
-      - name: Merge both prior branches and resume
+      - name: Merge prior counterexamples and run bounded Boolean SAT
         env:
           TARGET: ${{ matrix.target }}
           BRANCH: ${{ matrix.branch }}
         run: |
           python k11122/merge_checkpoints.py --target "$TARGET" --output resume/merged.json
-          python k11122/search.py --target "$TARGET" --branch "$BRANCH" --seconds 1200 --solve-seconds 60 --resume resume/merged.json --output "results/t$TARGET-b$BRANCH"
+          python k11122/sat_search.py --target "$TARGET" --branch "$BRANCH" --seconds 1200 --solve-seconds 1200 --resume resume/merged.json --output "results/t$TARGET-b$BRANCH"
       - name: Preserve results even on failure
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: k11122-target-${{ matrix.target }}-branch-${{ matrix.branch }}-${{ github.run_id }}
+          name: k11122-cnf-target-${{ matrix.target }}-branch-${{ matrix.branch }}-${{ github.run_id }}
           path: results/
           if-no-files-found: warn
           retention-days: 30
