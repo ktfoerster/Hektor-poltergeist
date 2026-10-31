@@ -96,7 +96,8 @@ python k11122/sat_search.py --target 0 --branch 0 --seconds 1200 \
 
 ## Follow-up implementation
 
-Commit `3ccfceb` implements the next experiment identified above. CaDiCaL now
+Commit [`60120ba`](https://github.com/ktfoerster/Hektor-poltergeist/commit/60120ba34710c0316110ece1739fa1f10d2994d8)
+implements the next experiment identified above. CaDiCaL now
 runs in one owned persistent worker with deterministic 200,000-conflict
 checkpoint slices. Normal slice exhaustion keeps the worker and all learned
 clauses alive. After an invalid candidate, the parent retains the independent
@@ -112,3 +113,54 @@ its 90-second parent bound. This validates interruption/checkpoint behavior;
 it does not resolve either orbit. The next hosted matrix starts from the new
 1,541/1,325-mask unions. Raw UNSAT remains uncertified unless a proof is emitted
 and independently checked.
+
+## Persistent-worker hosted matrix 41166640954
+
+The push-triggered follow-up
+[`41166640954`](https://github.com/ktfoerster/Hektor-poltergeist/actions/runs/41166640954)
+completed all four jobs normally. All 15 tests passed in every job. Each job
+kept one worker PID and generation for its complete 20-minute search, including
+ordinary conflict-slice UNKNOWNs, SAT candidates, and streamed clauses.
+
+| Target | Branch | SAT candidates rejected | Final masks | Final vars | Final clauses | Conflicts | Final candidate failures |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 0 | 27 | 1,973 | 830,812 | 3,105,881 | 8,408,862 | 245,206 / 2,979,236 |
+| 0 | 1 | 26 | 1,957 | 820,616 | 3,069,475 | 7,853,465 | 246,303 / 2,979,236 |
+| 3 | 0 | 18 | 1,613 | 895,648 | 3,497,623 | 5,527,177 | 239,592 / 2,937,186 |
+| 3 | 1 | 19 | 1,629 | 902,086 | 3,520,191 | 5,596,793 | 229,807 / 2,937,186 |
+
+The 90 complete finite-suite candidates all failed unchanged exhaustive C++
+replay. Freshly recompiling `verify.cpp` and replaying the four final tables
+again produced exactly 524,288 masks and 2,979,236 or 2,937,186 connected-source
+obligations, with the failure counts above. No encoder/checker disagreement
+occurred. Every branch ended `UNKNOWN`; no raw UNSAT was used.
+
+The new strict branch unions contain 2,092 target-0 masks and 1,745 target-3
+masks. This preserves 551 and 420 new distinct unconditional obligations beyond
+the preceding 1,541/1,325 inputs. Compared with the first Boolean matrix, the
+persistent-worker run rejected 90 rather than 53 candidates despite starting
+from stronger suites. This is a measured campaign outcome, not a general
+solver-speed theorem.
+
+Artifacts:
+
+- [target 0, branch 0](https://github.com/ktfoerster/Hektor-poltergeist/actions/runs/41166640954/artifacts/13030390269), SHA-256 `757f46a851aeb4ba8564be8401e54de8ed397aa1317f5e5485161dd43b936419`
+- [target 0, branch 1](https://github.com/ktfoerster/Hektor-poltergeist/actions/runs/41166640954/artifacts/13029782198), SHA-256 `b219002323e7f8e96d80474a9add475e8d6a1ee36eab93e51a440bd3f29a585a`
+- [target 3, branch 0](https://github.com/ktfoerster/Hektor-poltergeist/actions/runs/41166640954/artifacts/13029547838), SHA-256 `e56220073b0cb4bffecca5087eb48db257024258f467f397f223aafde894085a`
+- [target 3, branch 1](https://github.com/ktfoerster/Hektor-poltergeist/actions/runs/41166640954/artifacts/13029552874), SHA-256 `05a4e235433ddc3f833ca19a0f9049f2166e6a3af9a74dd26dafb48e8da3c841`
+
+The durable unions and exact source provenance are under
+`research-checkpoints/k11122-run-41166640954/`.
+
+## Current status and next experiment
+
+Both one-bit destination orbits remain unresolved; the established 2–3-state
+bounds are unchanged. Repeating this matrix unchanged would mostly continue a
+lexicographically clustered first-16 counterexample stream. The next concrete
+experiment should change the CEGIS batch selection: retain exact exhaustive
+replay, but choose a deterministic diverse set of failing residuals across the
+full scan (for example by failure-edge-count strata and stable mask order),
+then differentially test that every returned mask really rejects the candidate.
+This preserves unrestricted semantics while testing whether broader clauses
+reduce candidate churn. A negative claim still requires checked DRAT/LRAT for
+both branches; timeouts and invalid candidates remain non-results.
