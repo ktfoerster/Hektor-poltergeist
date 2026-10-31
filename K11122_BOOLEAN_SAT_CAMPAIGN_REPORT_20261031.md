@@ -216,3 +216,54 @@ four-job hosted matrix therefore tests MapleChrono on the same preserved
 constraints. No solver timeout or uncertified result changes the scientific
 status: both one-bit orbits remain unresolved and the 2–3-state bounds stand.
 
+## MapleChrono hosted matrix 41172644514
+
+The alternative-backend run
+[`41172644514`](https://github.com/ktfoerster/Hektor-poltergeist/actions/runs/41172644514)
+completed all four jobs normally. All seventeen then-current tests passed in
+each job. The four GitHub artifact ZIP digests and every internal manifest
+entry verify.
+
+| Target | Branch | SAT candidates | Masks | Conflicts completed | Status |
+|---:|---:|---:|---:|---:|---|
+| 0 | 0 | 0 | 2,352 | 7,800,038 | UNKNOWN |
+| 0 | 1 | 0 | 2,352 | 9,000,039 | UNKNOWN |
+| 3 | 0 | 0 | 1,827 | 7,800,031 | UNKNOWN |
+| 3 | 1 | 0 | 1,827 | 11,400,047 | UNKNOWN |
+
+Artifacts:
+
+- [target 0, branch 0](https://github.com/ktfoerster/Hektor-poltergeist/actions/runs/41172644514/artifacts/13032147746), SHA-256 `ac7baeee9c9124dd1afb3f6965dfcc69f5a7f20866d516fe7f4046fafc20f6fd`
+- [target 0, branch 1](https://github.com/ktfoerster/Hektor-poltergeist/actions/runs/41172644514/artifacts/13031988294), SHA-256 `c852308d83a547c467ce1229efb4373d3c0115ae9e8618ca202836ea57e6308f`
+- [target 3, branch 0](https://github.com/ktfoerster/Hektor-poltergeist/actions/runs/41172644514/artifacts/13032466995), SHA-256 `2409aaad6fb536f9d91b02086abaf82911623436e4a08868fe7d640a3f27c202`
+- [target 3, branch 1](https://github.com/ktfoerster/Hektor-poltergeist/actions/runs/41172644514/artifacts/13032202836), SHA-256 `830ab359c2233120fceb2faa34c92cd6be487acc6bb4e6492acc15226b2f8710`
+
+MapleChrono processed more conflict slices but discovered no candidate and no
+new residual. This is an observed throughput/candidate-discovery comparison,
+not a solver theorem and not a negative result. The strict unions therefore
+remain 2,352 masks for target 0 and 1,827 for target 3.
+
+## Phase-guided repair implementation
+
+The next search mode uses a complete previously rejected table only to set SAT
+branching phases. The parser verifies the graph/target, every legal row, exact
+completeness, and table SHA-256. It supplies positive and negative phases for
+all global selectors but adds no clause or assumption. A corruption test and a
+test that forces a preferred selector to its alternative demonstrate that the
+hint does not constrain satisfiability. Eighteen tests pass locally, including
+the existing semantic/differential suite for all three supported backends.
+
+The four seed tables were independently replayed again before commit:
+
+| Target | Branch | Seed SHA-256 | Exhaustive failures | Source artifact |
+|---:|---:|---|---:|---:|
+| 0 | 0 | `c813cbcabbd4ceda65b2fc6501c5566e5b3592fa82b20abe92a7c0c39eaf289b` | 90,269 / 2,979,236 | 13030766546 |
+| 0 | 1 | `6a76eae2407cea086f51c2ddad90e0995ef0350d61925110d1d1b521d90618b2` | 48,912 / 2,979,236 | 13031138748 |
+| 3 | 0 | `7438fb8b73e265d58c1f89d7b643be3e45cde1e5f01a4d2bd3e96d4c8c6805a3` | 234,653 / 2,937,186 | 13031225368 |
+| 3 | 1 | `8be1e02819569916fe211529f1ef163046f41563dad5eea3dda1a7c803e22f85` | 150,813 / 2,937,186 | 13031407324 |
+
+CaDiCaL receives a different deterministic recorded seed in each branch. This
+changes the search trajectory while preserving the exact 2,352/1,827-mask CNF
+and both emitted bits in every physical-first-hop branch. Any returned table
+still requires unchanged exhaustive replay; any timeout remains `UNKNOWN`.
+

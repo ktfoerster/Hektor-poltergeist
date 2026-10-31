@@ -18,8 +18,11 @@ jobs:
       fail-fast: false
       max-parallel: 4
       matrix:
-        target: [0, 3]
-        branch: [0, 1]
+        include:
+          - {target: 0, branch: 0, backend: cadical195, seed: 20261101, phase: k11122/phase-seeds/t0-b0.tsv}
+          - {target: 0, branch: 1, backend: cadical195, seed: 20261102, phase: k11122/phase-seeds/t0-b1.tsv}
+          - {target: 3, branch: 0, backend: cadical195, seed: 20261131, phase: k11122/phase-seeds/t3-b0.tsv}
+          - {target: 3, branch: 1, backend: cadical195, seed: 20261132, phase: k11122/phase-seeds/t3-b1.tsv}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -33,9 +36,13 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
           BRANCH: ${{ matrix.branch }}
+          BACKEND: ${{ matrix.backend }}
+          SEED: ${{ matrix.seed }}
+          PHASE: ${{ matrix.phase }}
         run: |
+          (cd k11122/phase-seeds && sha256sum -c SHA256SUMS)
           python k11122/merge_checkpoints.py --target "$TARGET" --output resume/merged.json
-          python k11122/sat_search.py --target "$TARGET" --branch "$BRANCH" --backend maplechrono --seconds 1200 --solve-seconds 1200 --conflicts 200000 --resume resume/merged.json --output "results/t$TARGET-b$BRANCH"
+          python k11122/sat_search.py --target "$TARGET" --branch "$BRANCH" --backend "$BACKEND" --seed "$SEED" --phase-policy "$PHASE" --seconds 1200 --solve-seconds 1200 --conflicts 200000 --resume resume/merged.json --output "results/t$TARGET-b$BRANCH"
       - name: Preserve results even on failure
         if: always()
         uses: actions/upload-artifact@v4

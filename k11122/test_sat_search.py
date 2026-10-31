@@ -7,7 +7,8 @@ import unittest
 
 import z3
 
-from sat_search import (BooleanEncoding, adjacency, graph, partition, vertices,
+from sat_search import (BACKENDS, BooleanEncoding, adjacency, graph, partition,
+                        apply_phase_policy, read_phase_policy, vertices,
                         write_policy)
 from search import Encoding
 
@@ -53,9 +54,31 @@ def literal_mask_succeeds(n, target, rows, mask):
 
 
 class BooleanPrimitiveTests(unittest.TestCase):
+    def test_phase_policy_is_validated_and_does_not_constrain(self):
+        encoding = BooleanEncoding(3, 0)
+        rows = {key: choices[0][0] for key, choices in encoding.rows.items()}
+        key = (1, 4, -1, 0)
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "policy.tsv"
+            write_policy(path, 3, 0, rows)
+            self.assertEqual(read_phase_policy(path, encoding), rows)
+            metadata = apply_phase_policy(path, encoding)
+            self.assertEqual(metadata["rows"], len(encoding.rows))
+            preferred = encoding.selector(key, rows[key])
+            encoding.add_clause((-preferred,))
+            self.assertTrue(encoding.solver.solve())
+            self.assertNotEqual(encoding.policy()[key], rows[key])
+            path.write_text("3 0\n")
+            with self.assertRaisesRegex(ValueError, "incomplete"):
+                read_phase_policy(path, encoding)
+            path.write_text("3 1\n")
+            with self.assertRaisesRegex(ValueError, "mismatch"):
+                read_phase_policy(path, encoding)
+        encoding.delete()
+
     def test_backends_build_identical_cnf_and_models(self):
         fingerprints = []
-        for backend in ("cadical195", "maplechrono"):
+        for backend in BACKENDS:
             encoding = BooleanEncoding(3, 0, backend=backend)
             for mask in range(1 << len(graph(3))):
                 encoding.add(mask)
@@ -65,7 +88,7 @@ class BooleanPrimitiveTests(unittest.TestCase):
             fingerprints.append((encoding.top, encoding.clause_count,
                                  encoding.statistics()["formula_sha256"]))
             encoding.delete()
-        self.assertEqual(fingerprints[0], fingerprints[1])
+        self.assertEqual(len(set(fingerprints)), 1)
 
     def test_guarded_comparator_boundaries(self):
         encoding = BooleanEncoding(2, 0)
@@ -96,7 +119,7 @@ class BooleanPrimitiveTests(unittest.TestCase):
         encoding.delete()
 
     def test_persistent_worker_receives_new_clauses(self):
-        for backend in ("cadical195", "maplechrono"):
+        for backend in BACKENDS:
             encoding = BooleanEncoding(2, 0, backend=backend)
             key = (1, 1, -1, 0)
             selected = encoding.selector(key, 0)

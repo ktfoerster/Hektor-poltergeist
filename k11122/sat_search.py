@@ -21,8 +21,9 @@ from pysat.solvers import Solver
 
 
 PYSAT_PIN = "python-sat==1.8.dev24"
-BACKENDS = ("cadical195", "maplechrono")
-BACKEND_LABELS = {"cadical195": "Cadical195", "maplechrono": "MapleChrono"}
+BACKENDS = ("cadical195", "maplechrono", "glucose42")
+BACKEND_LABELS = {"cadical195": "Cadical195", "maplechrono": "MapleChrono",
+                  "glucose42": "Glucose42"}
 
 
 def graph(n):
@@ -52,11 +53,19 @@ class BooleanEncoding:
             raise ValueError(f"unsupported backend: {backend}")
         self.backend = backend
         self.solver = Solver(name=backend)
-        # CaDiCaL exposes a seed parameter. MapleChrono does not expose a
-        # random seed through PySAT and is deterministic for fixed clause order.
-        self.seed_effective = backend == "cadical195"
-        if self.seed_effective:
-            self.solver.configure({"seed": seed})
+        # CaDiCaL and Glucose expose deterministic seeds. MapleChrono does not
+        # expose one through PySAT and is deterministic for fixed clause order.
+        self.seed_effective = backend in ("cadical195", "glucose42")
+        self.backend_options = {}
+        if backend == "cadical195":
+            self.backend_options = {"seed": seed}
+        elif backend == "glucose42":
+            self.backend_options = {
+                "rnd-seed": seed, "rnd-freq": 0.02, "rnd-init-act": True,
+                "rnd-pol": True, "rnd-first-descent": True,
+            }
+        if self.backend_options:
+            self.solver.configure(self.backend_options)
         self.seed = seed
         self.top = 0
         self.clause_count = 0
@@ -392,6 +401,50 @@ def write_policy(path, n, target, rows):
         for key, action in sorted(rows.items())))
 
 
+def read_phase_policy(path, encoding):
+    """Read a complete legal table used only as solver phase preferences."""
+    tokens = path.read_text().splitlines()
+    if not tokens:
+        raise ValueError("empty phase policy")
+    try:
+        header = [int(value) for value in tokens[0].split()]
+    except ValueError as error:
+        raise ValueError("invalid phase policy header") from error
+    if header != [encoding.n, encoding.t]:
+        raise ValueError("phase policy graph/target mismatch")
+    rows = {}
+    for line in tokens[1:]:
+        try:
+            values = [int(value) for value in line.split()]
+        except ValueError as error:
+            raise ValueError("invalid phase policy row") from error
+        if len(values) != 5:
+            raise ValueError("invalid phase policy row")
+        key, action = tuple(values[:4]), values[4]
+        if key in rows:
+            raise ValueError("duplicate phase policy row")
+        choices = encoding.rows.get(key)
+        if choices is None or action not in [candidate for candidate, _ in choices]:
+            raise ValueError("illegal phase policy row")
+        rows[key] = action
+    if set(rows) != set(encoding.rows):
+        raise ValueError("incomplete phase policy")
+    return rows
+
+
+def apply_phase_policy(path, encoding):
+    rows = read_phase_policy(path, encoding)
+    literals = []
+    for key, choices in encoding.rows.items():
+        selected = rows[key]
+        literals.extend(var if action == selected else -var
+                        for action, var in choices)
+    encoding.solver.set_phases(literals)
+    return {"file": str(path), "sha256": file_sha256(path),
+            "rows": len(rows), "selector_literals": len(literals),
+            "semantics": "branching phases only; no clauses or assumptions added"}
+
+
 def file_sha256(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -405,12 +458,17 @@ def main():
                         help="backend conflicts per checkpointable solve slice")
     parser.add_argument("--backend", choices=BACKENDS, default="cadical195",
                         help="pinned PySAT backend; formula semantics are identical")
+    parser.add_argument("--seed", type=int, default=20261031,
+                        help="deterministic backend seed where supported")
+    parser.add_argument("--phase-policy", type=pathlib.Path,
+                        help="complete legal table used only as branching phases")
     parser.add_argument("--branch", type=int, choices=(-1, 0, 1), default=-1)
     parser.add_argument("--output", type=pathlib.Path, required=True)
     parser.add_argument("--resume", type=pathlib.Path)
     args = parser.parse_args()
     if (not 1 <= args.seconds <= 14400 or not 1 <= args.solve_seconds <= 1200 or
-            not 1 <= args.conflicts <= 2000000):
+            not 1 <= args.conflicts <= 2000000 or
+            not 1 <= args.seed <= 2147483647):
         parser.error("budget out of range")
     output = args.output
     if output.exists() and any(output.iterdir()):
@@ -426,8 +484,11 @@ def main():
     subprocess.run(["g++", "-O3", "-std=c++17",
                     str(source_dir / "counterexample_miner.cpp"),
                     "-o", str(miner)], check=True)
-    encoding = BooleanEncoding(7, args.target, backend=args.backend)
+    encoding = BooleanEncoding(7, args.target, seed=args.seed,
+                               backend=args.backend)
     split = partition(encoding, args.branch)
+    phase_policy = (apply_phase_policy(args.phase_policy, encoding)
+                    if args.phase_policy else None)
     masks = [(1 << 19) - 1] + [((1 << 19) - 1) ^ (1 << i) for i in range(19)]
     if args.resume:
         masks = load_checkpoint(args.resume, args.target)
@@ -450,6 +511,8 @@ def main():
             "pysat": pysat.__version__,
             "commit": os.environ.get("GITHUB_SHA"),
             "seed": encoding.seed, "seed_effective": encoding.seed_effective,
+            "backend_options": encoding.backend_options,
+            "phase_policy": phase_policy,
             "model": "static-undirected/common-source-local/two-state",
             "resume_sha256": file_sha256(args.resume) if args.resume else None,
             "source_sha256": source_hashes, **encoding.statistics(),

@@ -71,6 +71,14 @@ and failure counts agree with the unchanged verifier. These masks are only
 CEGIS obligations and do not replace the verifier or constitute a negative
 certificate.
 
+An optional complete prior policy may be supplied as branching phases. The
+reader validates the graph, target, every legal row, exact completeness, and
+the table hash. It then calls the backend's phase-preference API for all global
+selector literals. This adds no clause or assumption: a test forces a selector
+away from its preferred phase and confirms that an alternative model remains
+SAT. Phase hints are therefore a search heuristic, not packet state, a frozen
+row, or a restriction of the policy space.
+
 An `UNSAT_UNCERTIFIED` result is not an impossibility result: this campaign
 does not emit and independently check DRAT/LRAT. Likewise, timeout, OOM, or an
 invalid exhaustive-replay candidate leaves the unrestricted problem open.

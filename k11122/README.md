@@ -128,6 +128,13 @@ batch of eight early and eight hash-diversified failing residuals. The next
 solve uses a strictly stronger formula. See `BOOLEAN_CNF.md` for the exact
 clauses and differential tests.
 
+The current follow-up also accepts `--phase-policy` with a complete legal
+table. It validates the table strictly and uses all selector values only as
+solver branching preferences. No clause or assumption is added, so every row
+can change. The committed `phase-seeds/` tables are independently replayed
+invalid candidates with hashes and source-artifact provenance; they are not
+claimed solutions or restrictions.
+
 `--branch 0` and `--branch 1` divide the same selected two-neighbor source
 observation by outgoing neighbor; `--branch -1` leaves the space unpartitioned.
 Only unconditional residual masks are imported across branches, never a
