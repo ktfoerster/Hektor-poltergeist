@@ -35,7 +35,7 @@ jobs:
           BRANCH: ${{ matrix.branch }}
         run: |
           python k11122/merge_checkpoints.py --target "$TARGET" --output resume/merged.json
-          python k11122/sat_search.py --target "$TARGET" --branch "$BRANCH" --seconds 1200 --solve-seconds 1200 --resume resume/merged.json --output "results/t$TARGET-b$BRANCH"
+          python k11122/sat_search.py --target "$TARGET" --branch "$BRANCH" --seconds 1200 --solve-seconds 1200 --conflicts 200000 --resume resume/merged.json --output "results/t$TARGET-b$BRANCH"
       - name: Preserve results even on failure
         if: always()
         uses: actions/upload-artifact@v4

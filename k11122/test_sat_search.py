@@ -1,5 +1,6 @@
 import itertools
 import pathlib
+import tempfile
 import unittest
 
 import z3
@@ -58,6 +59,22 @@ class BooleanPrimitiveTests(unittest.TestCase):
         self.assertFalse(encoding.solver.solve(assumptions=variables))
         for selected in variables:
             self.assertTrue(encoding.solver.solve(assumptions=[selected]))
+        encoding.delete()
+
+    def test_persistent_worker_receives_new_clauses(self):
+        encoding = BooleanEncoding(2, 0)
+        key = (1, 1, -1, 0)
+        selected = encoding.selector(key, 0)
+        with tempfile.TemporaryDirectory() as directory:
+            first, first_payload = encoding.solve_for(
+                5, pathlib.Path(directory) / "first.json", 100)
+            self.assertTrue(first)
+            encoding.add_clause((-selected,))
+            second, second_payload = encoding.solve_for(
+                5, pathlib.Path(directory) / "second.json", 100)
+            self.assertFalse(second)
+            self.assertEqual(first_payload["worker_pid"], second_payload["worker_pid"])
+            self.assertEqual(second_payload["clauses_added"], 1)
         encoding.delete()
 
 
@@ -123,16 +140,17 @@ class DifferentialTests(unittest.TestCase):
         encoding.delete()
 
     def test_partition_preserves_both_emitted_bits(self):
-        for branch in (0, 1):
-            encoding = BooleanEncoding(7, 0)
-            spec = partition(encoding, branch)
-            row = tuple(spec["row"])
-            for neighbor_index, neighbor in enumerate(spec["neighbors"]):
-                for bit in (0, 1):
-                    result = encoding.solver.solve(
-                        assumptions=[encoding.selector(row, 2 * neighbor + bit)])
-                    self.assertEqual(result, neighbor_index == branch)
-            encoding.delete()
+        for target in (0, 3):
+            for branch in (0, 1):
+                encoding = BooleanEncoding(7, target)
+                spec = partition(encoding, branch)
+                row = tuple(spec["row"])
+                for neighbor_index, neighbor in enumerate(spec["neighbors"]):
+                    for bit in (0, 1):
+                        result = encoding.solver.solve(
+                            assumptions=[encoding.selector(row, 2 * neighbor + bit)])
+                        self.assertEqual(result, neighbor_index == branch)
+                encoding.delete()
 
 
 if __name__ == "__main__":

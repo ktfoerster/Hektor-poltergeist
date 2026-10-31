@@ -56,6 +56,10 @@ class BooleanEncoding:
         self.rows = {}
         self.masks = []
         self.residual_stats = []
+        self._worker = None
+        self._worker_pipe = None
+        self._worker_generation = 0
+        self._pending_clauses = []
         host = adjacency(n, self.edges, (1 << len(self.edges)) - 1)
         for u in range(n):
             if u == target:
@@ -77,6 +81,7 @@ class BooleanEncoding:
                     self.exactly_one([var for _, var in choices])
 
     def delete(self):
+        self._stop_worker()
         if self.solver is not None:
             self.solver.delete()
             self.solver = None
@@ -90,6 +95,8 @@ class BooleanEncoding:
         if not clause:
             raise ValueError("empty clause")
         self.solver.add_clause(clause)
+        if self._worker is not None:
+            self._pending_clauses.append(clause)
         self.clause_count += 1
         self.fingerprint.update((" ".join(map(str, clause)) + " 0\n").encode())
 
@@ -210,32 +217,79 @@ class BooleanEncoding:
             "new_clauses": self.clause_count - before_clauses,
         })
 
-    def solve_for(self, seconds, result_path):
-        """Solve in an owned fork so the wall-clock limit is enforceable.
+    def _stop_worker(self):
+        if self._worker is None:
+            return
+        if self._worker.is_alive():
+            try:
+                self._worker_pipe.send({"command": "stop"})
+                self._worker.join(2)
+            except (BrokenPipeError, EOFError, OSError):
+                pass
+        if self._worker.is_alive():
+            self._worker.terminate()
+            self._worker.join(10)
+        if self._worker.is_alive():
+            self._worker.kill()
+            self._worker.join()
+        self._worker_pipe.close()
+        self._worker = self._worker_pipe = None
 
-        PySAT's CaDiCaL wrapper does not release the GIL for a Python timer and
-        does not implement ``solve_limited``.  Forking after deterministic
-        construction preserves the exact formula; the parent can terminate
-        and join only its own solver child at the bound.  A SAT child returns
-        the complete policy, not an unchecked partial model.
-        """
+    def _start_worker(self):
         if "fork" not in multiprocessing.get_all_start_methods():
             raise RuntimeError("bounded CaDiCaL execution requires POSIX fork")
-        result_path.unlink(missing_ok=True)
         context = multiprocessing.get_context("fork")
-        process = context.Process(target=_solve_child, args=(self, result_path))
-        process.start()
-        process.join(seconds)
-        if process.is_alive():
-            process.terminate()
-            process.join(10)
-            if process.is_alive():
-                process.kill()
-                process.join()
-            return None, {"child_exitcode": process.exitcode, "bounded_timeout": True}
-        if process.exitcode != 0 or not result_path.exists():
-            raise RuntimeError(f"CaDiCaL child failed with exit code {process.exitcode}")
-        payload = json.loads(result_path.read_text())
+        parent_pipe, child_pipe = context.Pipe()
+        self._worker_generation += 1
+        self._worker = context.Process(
+            target=_solver_worker, args=(self, child_pipe, self._worker_generation))
+        self._worker.start()
+        child_pipe.close()
+        self._worker_pipe = parent_pipe
+        self._pending_clauses.clear()
+
+    def solve_for(self, seconds, result_path, conflict_budget=200000):
+        """Run one bounded slice in a persistent owned solver process.
+
+        CaDiCaL's conflict budget provides frequent checkpoint opportunities,
+        while the parent still enforces an independent wall bound.  A worker
+        that returns UNKNOWN remains alive, retaining learned clauses for the
+        next slice.  Clauses added after a rejected candidate are streamed to
+        that same worker.  If it misses the wall bound, only the owned worker
+        is killed; the exact formula remains in the parent and the next slice
+        starts a fresh worker (without the killed worker's learned clauses).
+        """
+        if conflict_budget < 1:
+            raise ValueError("conflict budget must be positive")
+        result_path.unlink(missing_ok=True)
+        if self._worker is None or not self._worker.is_alive():
+            self._stop_worker()
+            self._start_worker()
+        clauses = self._pending_clauses
+        self._pending_clauses = []
+        message = {"command": "solve", "conflict_budget": conflict_budget,
+                   "clauses": clauses}
+        try:
+            self._worker_pipe.send(message)
+            if not self._worker_pipe.poll(seconds):
+                pid, generation = self._worker.pid, self._worker_generation
+                self._stop_worker()
+                return None, {
+                    "bounded_timeout": True, "worker_pid": pid,
+                    "worker_generation": generation,
+                    "clauses_added": len(clauses), "learned_state_retained": False,
+                }
+            payload = self._worker_pipe.recv()
+        except (BrokenPipeError, EOFError, OSError) as error:
+            exitcode = self._worker.exitcode
+            self._stop_worker()
+            raise RuntimeError(
+                f"CaDiCaL worker failed with exit code {exitcode}") from error
+        temporary = result_path.with_suffix(result_path.suffix + ".tmp")
+        temporary.write_text(json.dumps(payload, sort_keys=True))
+        temporary.replace(result_path)
+        if "error" in payload:
+            raise RuntimeError(f"CaDiCaL worker error: {payload['error']}")
         return payload["result"], payload
 
     def policy(self):
@@ -260,25 +314,43 @@ class BooleanEncoding:
         }
 
 
-def _solve_child(encoding, result_path):
-    """Fork-only target; writes atomically so a killed child leaves no result."""
+def _solver_worker(encoding, pipe, generation):
+    """Fork-only persistent worker; owns all mutable learned solver state."""
     try:
-        result = encoding.solver.solve()
-        payload = {
-            "result": result,
-            "solver": encoding.solver.accum_stats(),
-            "child_pid": os.getpid(),
-        }
-        if result:
-            payload["rows"] = [[*key, action]
-                               for key, action in sorted(encoding.policy().items())]
-        temporary = result_path.with_suffix(result_path.suffix + ".tmp")
-        temporary.write_text(json.dumps(payload, sort_keys=True))
-        temporary.replace(result_path)
+        while True:
+            message = pipe.recv()
+            if message["command"] == "stop":
+                break
+            if message["command"] != "solve":
+                raise ValueError("unknown worker command")
+            clauses = message["clauses"]
+            for clause in clauses:
+                encoding.solver.add_clause(clause)
+            encoding.solver.conf_budget(message["conflict_budget"])
+            result = encoding.solver.solve_limited()
+            payload = {
+                "result": result,
+                "solver": encoding.solver.accum_stats(),
+                "worker_pid": os.getpid(),
+                "worker_generation": generation,
+                "conflict_budget": message["conflict_budget"],
+                "clauses_added": len(clauses),
+                "learned_state_retained": result is None,
+            }
+            if result:
+                payload["rows"] = [[*key, action]
+                                   for key, action in sorted(encoding.policy().items())]
+            pipe.send(payload)
     except BaseException as error:
-        error_path = result_path.with_suffix(result_path.suffix + ".error")
-        error_path.write_text(repr(error))
-        raise
+        try:
+            pipe.send({"error": repr(error), "worker_pid": os.getpid(),
+                       "worker_generation": generation})
+        except (BrokenPipeError, EOFError, OSError):
+            pass
+    finally:
+        pipe.close()
+        encoding.solver.delete()
+        encoding.solver = None
 
 
 def partition(encoding, branch):
@@ -321,11 +393,14 @@ def main():
     parser.add_argument("--target", type=int, choices=(0, 3), required=True)
     parser.add_argument("--seconds", type=int, default=1200)
     parser.add_argument("--solve-seconds", type=int, default=1200)
+    parser.add_argument("--conflicts", type=int, default=200000,
+                        help="CaDiCaL conflicts per checkpointable solve slice")
     parser.add_argument("--branch", type=int, choices=(-1, 0, 1), default=-1)
     parser.add_argument("--output", type=pathlib.Path, required=True)
     parser.add_argument("--resume", type=pathlib.Path)
     args = parser.parse_args()
-    if not 1 <= args.seconds <= 14400 or not 1 <= args.solve_seconds <= 1200:
+    if (not 1 <= args.seconds <= 14400 or not 1 <= args.solve_seconds <= 1200 or
+            not 1 <= args.conflicts <= 2000000):
         parser.error("budget out of range")
     output = args.output
     if output.exists() and any(output.iterdir()):
@@ -344,7 +419,7 @@ def main():
         masks = load_checkpoint(args.resume, args.target)
     initial_count = len(masks)
     status, stage, reason = "UNKNOWN", "constructing", ""
-    iteration, last_candidate = 0, None
+    iteration, last_candidate, last_worker = 0, None, None
     source_hashes = {name: file_sha256(source_dir / name) for name in
                      ("sat_search.py", "verify.cpp", "merge_checkpoints.py")}
 
@@ -354,8 +429,10 @@ def main():
             "status": status, "stage": stage, "iteration": iteration,
             "partition": split, "initial_residuals": initial_count,
             "reason": reason, "last_candidate": last_candidate,
+            "last_worker": last_worker,
             "elapsed_seconds": time.monotonic() - started,
             "backend": DEPENDENCY, "pysat": pysat.__version__,
+            "commit": os.environ.get("GITHUB_SHA"),
             "seed": encoding.seed, "model": "static-undirected/common-source-local/two-state",
             "resume_sha256": file_sha256(args.resume) if args.resume else None,
             "source_sha256": source_hashes, **encoding.statistics(),
@@ -376,14 +453,17 @@ def main():
             limit = min(args.solve_seconds, max(0.001, deadline - time.monotonic()))
             before = time.monotonic()
             solve_result_path = output / f"solve-{iteration + 1}.json"
-            result, solve_payload = encoding.solve_for(limit, solve_result_path)
+            result, solve_payload = encoding.solve_for(
+                limit, solve_result_path, args.conflicts)
             iteration += 1
             child_summary = {key: value for key, value in solve_payload.items()
                              if key != "rows"}
+            last_worker = child_summary
             record = {
                 "iteration": iteration, "residuals": len(encoding.masks),
                 "solver": "SAT" if result is True else "UNSAT" if result is False else "UNKNOWN",
-                "limit_seconds": limit, "solve_seconds": time.monotonic() - before,
+                "limit_seconds": limit, "conflict_budget": args.conflicts,
+                "solve_seconds": time.monotonic() - before,
                 "elapsed_seconds": time.monotonic() - started,
                 **encoding.statistics(), "child": child_summary,
             }
@@ -391,7 +471,9 @@ def main():
                 progress.write(json.dumps(record, sort_keys=True) + "\n")
             print(json.dumps(record, sort_keys=True), flush=True)
             if result is None:
-                reason = "interrupted at bounded solve slice; same incremental solver retained"
+                reason = ("conflict slice exhausted; persistent worker retained learned clauses"
+                          if solve_payload.get("learned_state_retained") else
+                          "wall slice exhausted; worker terminated and learned clauses discarded")
                 checkpoint()
                 continue
             if result is False:

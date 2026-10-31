@@ -52,10 +52,15 @@ The pinned backend is `python-sat==1.8.dev24` with `Cadical195`. Clauses are
 emitted in deterministic order with seed `20261031`; checkpoints record the
 variable count, clause count, exact clause-stream SHA-256, source hashes,
 resume hash, branch, dependency version, and solver outcome. CaDiCaL runs in
-an owned fork because PySAT's CaDiCaL wrapper does not provide a reliable
-wall-clock interrupt. The parent terminates and joins only that child at the
-declared bound. A SAT child returns a complete legal table, which the unchanged
-C++ program replays on all 524,288 residuals and all connected nonself sources.
+an owned persistent worker. Each `solve_limited` call has a deterministic
+conflict budget; an UNKNOWN worker stays alive so its learned clauses survive
+the next slice, and clauses for newly found counterexamples are streamed to
+that same worker. The parent also enforces the declared wall bound. If the
+worker misses it, only that worker is terminated; the exact parent formula is
+retained and a fresh worker can be forked, though the killed worker's learned
+clauses are lost. A SAT worker returns a complete legal table, which the
+unchanged C++ program replays on all 524,288 residuals and all connected
+nonself sources.
 
 An `UNSAT_UNCERTIFIED` result is not an impossibility result: this campaign
 does not emit and independently check DRAT/LRAT. Likewise, timeout, OOM, or an
@@ -68,7 +73,8 @@ python -m pip install z3-solver==4.13.3.0 python-sat==1.8.dev24
 python -m unittest discover -s k11122 -p 'test_*.py' -v
 python k11122/merge_checkpoints.py --target 0 --output merged-t0.json
 python k11122/sat_search.py --target 0 --branch 0 --seconds 1200 \
-  --solve-seconds 1200 --resume merged-t0.json --output results/t0-b0
+  --solve-seconds 1200 --conflicts 200000 --resume merged-t0.json \
+  --output results/t0-b0
 ```
 
 The tests exhaust all 64 normalized triangle bit policies and compare CNF,

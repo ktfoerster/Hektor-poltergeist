@@ -83,13 +83,14 @@ self-hosted runners, paid machine provisioning or infinite resubmission.
 
 
 ## Continuation version (31 October 2026)
-The workflow merges both branch checkpoints from run 41153794470 separately
+The workflow merges both branch checkpoints from run 41164233786 separately
 for each destination orbit. The four original checkpoint files and their
-artifact provenance are retained in `checkpoints/run-41153794470/`, so this
+artifact provenance are retained in `checkpoints/run-41164233786/`, so this
 continuation does not depend on expiring Actions downloads. Original ZIPs
 passed their GitHub SHA-256 digests, all CRC checks and all per-file hashes
 before checkpoint extraction. The merger rechecks checkpoint hashes, model,
-target, branch and mask domains before taking a deterministic sorted union.
+target, branch, backend, workflow provenance and mask domains before taking a
+deterministic sorted union.
 Only unconditional residual obligations are imported; no branch assertions,
 solver statuses or candidate policies are combined. Each new branch starts
 from the same union for its destination orbit.
@@ -112,11 +113,14 @@ budget; the 30-minute Actions job limit is the outer bound. Four jobs imply
 at most 120 runner-minutes. No self-hosted machine is used.
 
 The preceding retry paragraph describes the retained SMT baseline in
-`search.py`. The active CNF runner makes one wall-clock-bounded CaDiCaL attempt
-in an owned child process and does not restart a timed-out formula. If SAT
-produces an invalid exhaustive-replay candidate, its counterexamples are added
-and the next solve uses a strictly stronger formula. See `BOOLEAN_CNF.md` for
-the exact clauses and differential tests.
+`search.py`. The active CNF runner uses deterministic conflict-bounded slices
+in one owned persistent CaDiCaL worker. Learned clauses survive an ordinary
+conflict-slice UNKNOWN and new counterexample clauses are streamed into the
+same process. A separate parent wall bound can still terminate a stuck worker;
+a replacement then inherits the exact formula but not the killed process's
+learned clauses. If SAT produces an invalid exhaustive-replay candidate, its
+counterexamples are added and the next solve uses a strictly stronger formula.
+See `BOOLEAN_CNF.md` for the exact clauses and differential tests.
 
 `--branch 0` and `--branch 1` divide the same selected two-neighbor source
 observation by outgoing neighbor; `--branch -1` leaves the space unpartitioned.

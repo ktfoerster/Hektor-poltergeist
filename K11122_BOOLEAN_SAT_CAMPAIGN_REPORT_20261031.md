@@ -89,18 +89,26 @@ Reproduce the tests and one branch with:
 python -m pip install z3-solver==4.13.3.0 python-sat==1.8.dev24
 python -m unittest discover -s k11122 -p 'test_*.py' -v
 python k11122/sat_search.py --target 0 --branch 0 --seconds 1200 \
-  --solve-seconds 1200 \
+  --solve-seconds 1200 --conflicts 200000 \
   --resume research-checkpoints/k11122-run-41164233786/merged-target0.json \
   --output results/t0-b0-next
 ```
 
-## Limitation and next experiment
+## Follow-up implementation
 
-The present wall-clock control forks a fresh solver for each strengthened
-formula. This safely bounds each call, but learned CaDiCaL clauses are lost
-after every SAT candidate. The next concrete implementation step is a
-persistent owned solver child with parent/child IPC: the parent retains the
-independent C++ replay, sends only newly generated CNF clauses after a failed
-candidate, and kills/joins the child at the absolute budget. That experiment
-should start from the new cross-branch mask unions and must still treat any raw
-UNSAT as uncertified unless a proof is emitted and independently checked.
+Commit `3ccfceb` implements the next experiment identified above. CaDiCaL now
+runs in one owned persistent worker with deterministic 200,000-conflict
+checkpoint slices. Normal slice exhaustion keeps the worker and all learned
+clauses alive. After an invalid candidate, the parent retains the independent
+C++ replay and streams only the newly generated CNF clauses into the same
+worker. An independent parent wall bound can still kill and join a stuck
+worker; the replacement inherits the exact formula but not the killed
+process's learned clauses.
+
+Fifteen tests pass, including worker clause propagation and partition coverage
+for both target orbits. A full merged target-0 branch-0 smoke test accumulated
+550,009 conflicts over eleven slices in the same worker and stopped cleanly at
+its 90-second parent bound. This validates interruption/checkpoint behavior;
+it does not resolve either orbit. The next hosted matrix starts from the new
+1,541/1,325-mask unions. Raw UNSAT remains uncertified unless a proof is emitted
+and independently checked.

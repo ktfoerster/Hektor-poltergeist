@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from merge_checkpoints import merge
 
-ROOT = pathlib.Path(__file__).parent / 'checkpoints/run-41153794470'
+ROOT = pathlib.Path(__file__).parent / 'checkpoints/run-41164233786'
 
 class MergeTests(unittest.TestCase):
     def test_exact_union_and_no_branch_leak(self):
@@ -18,6 +18,9 @@ class MergeTests(unittest.TestCase):
             self.assertIsNone(merged['partition'])
             self.assertEqual(merged['status'], 'UNKNOWN')
             self.assertNotIn('last_candidate', merged)
+            self.assertEqual(merged['schema'], 3)
+            self.assertTrue(all(source['workflow_run_id'] == 41164233786
+                                for source in merged['sources']))
 
     def test_corruption_and_mismatches_rejected(self):
         with tempfile.TemporaryDirectory() as d:
@@ -27,7 +30,9 @@ class MergeTests(unittest.TestCase):
             original = p.read_bytes()
             p.write_bytes(original + b' ')
             with self.assertRaises(ValueError): merge(root, 0)
-            for field, value in [('target', 3), ('model', 'wrong'), ('masks', [True]), ('masks', [1 << 19]), ('masks', [1, 1])]:
+            for field, value in [('target', 3), ('model', 'wrong'),
+                                 ('backend', 'wrong'), ('masks', [True]),
+                                 ('masks', [1 << 19]), ('masks', [1, 1])]:
                 cp = json.loads(original); cp[field] = value
                 p.write_text(json.dumps(cp))
                 q = root / 't0-b0-provenance.json'

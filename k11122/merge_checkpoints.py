@@ -5,6 +5,7 @@ import json
 import pathlib
 
 MODEL = 'static-undirected/common-source-local/two-state'
+LATEST = pathlib.Path(__file__).parent / 'checkpoints/run-41164233786'
 
 def merge(root, target):
     masks = set()
@@ -17,10 +18,19 @@ def merge(root, target):
         digest = hashlib.sha256(raw).hexdigest()
         if digest != provenance['checkpoint_sha256']:
             raise ValueError('checkpoint hash mismatch')
+        workflow = provenance.get('workflow_run', {})
+        if (provenance.get('checkpoint_file') != path.name or
+                type(provenance.get('id')) is not int or provenance['id'] <= 0 or
+                type(workflow.get('id')) is not int or workflow['id'] <= 0 or
+                not isinstance(workflow.get('head_sha'), str) or
+                len(workflow['head_sha']) != 40):
+            raise ValueError('invalid checkpoint provenance')
         cp = json.loads(raw)
-        if (cp.get('schema') != 2 or cp.get('target') != target or
+        if (cp.get('schema') not in (2, 3) or cp.get('target') != target or
                 cp.get('model') != MODEL or cp.get('partition', {}).get('branch') != branch):
             raise ValueError('checkpoint model/target/branch mismatch')
+        if cp.get('schema') == 3 and cp.get('backend') != 'python-sat==1.8.dev24/Cadical195':
+            raise ValueError('checkpoint backend mismatch')
         values = cp.get('masks')
         if (not isinstance(values, list) or not values or
                 any(type(m) is not int or not 0 <= m < (1 << 19) for m in values)):
@@ -31,8 +41,11 @@ def merge(root, target):
         sets.append(current)
         masks.update(current)
         sources.append({'file': path.name, 'sha256': digest,
-                        'artifact_id': provenance['id'], 'count': len(current)})
-    return {'schema': 2, 'target': target, 'model': MODEL,
+                        'artifact_id': provenance['id'],
+                        'workflow_run_id': workflow['id'],
+                        'head_sha': workflow['head_sha'], 'count': len(current),
+                        'source_sha256': cp.get('source_sha256')})
+    return {'schema': 3, 'target': target, 'model': MODEL,
             'status': 'UNKNOWN', 'partition': None, 'masks': sorted(masks),
             'sources': sources, 'intersection_count': len(sets[0] & sets[1]),
             'scope': 'Union of unconditional live-edge residual obligations only; no policy or branch assertion imported.'}
@@ -40,7 +53,7 @@ def merge(root, target):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--target', type=int, choices=[0, 3], required=True)
-    p.add_argument('--root', type=pathlib.Path, default=pathlib.Path(__file__).parent / 'checkpoints/run-41153794470')
+    p.add_argument('--root', type=pathlib.Path, default=LATEST)
     p.add_argument('--output', type=pathlib.Path, required=True)
     args = p.parse_args()
     data = merge(args.root, args.target)
