@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from merge_checkpoints import merge
 
-ROOT = pathlib.Path(__file__).parent / 'checkpoints/run-41166640954'
+ROOT = pathlib.Path(__file__).parent / 'checkpoints/run-41168770051'
 
 class MergeTests(unittest.TestCase):
     def test_exact_union_and_no_branch_leak(self):
@@ -19,7 +19,7 @@ class MergeTests(unittest.TestCase):
             self.assertEqual(merged['status'], 'UNKNOWN')
             self.assertNotIn('last_candidate', merged)
             self.assertEqual(merged['schema'], 3)
-            self.assertTrue(all(source['workflow_run_id'] == 41166640954
+            self.assertTrue(all(source['workflow_run_id'] == 41168770051
                                 for source in merged['sources']))
 
     def test_corruption_and_mismatches_rejected(self):

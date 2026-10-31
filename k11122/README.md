@@ -83,9 +83,9 @@ self-hosted runners, paid machine provisioning or infinite resubmission.
 
 
 ## Continuation version (31 October 2026)
-The workflow merges both branch checkpoints from run 41166640954 separately
+The workflow merges both branch checkpoints from run 41168770051 separately
 for each destination orbit. The four original checkpoint files and their
-artifact provenance are retained in `checkpoints/run-41166640954/`, so this
+artifact provenance are retained in `checkpoints/run-41168770051/`, so this
 continuation does not depend on expiring Actions downloads. Original ZIPs
 passed their GitHub SHA-256 digests, all CRC checks and all per-file hashes
 before checkpoint extraction. The merger rechecks checkpoint hashes, model,
@@ -120,9 +120,10 @@ same process. A separate parent wall bound can still terminate a stuck worker;
 a replacement then inherits the exact formula but not the killed process's
 learned clauses. If SAT produces an invalid exhaustive-replay candidate, the
 unchanged verifier remains authoritative. A separate deterministic miner must
-agree with its exact obligation and failure counts, then contributes 16
-hash-diversified failing residuals and the next solve uses a strictly stronger
-formula. See `BOOLEAN_CNF.md` for the exact clauses and differential tests.
+agree with its exact obligation and failure counts, then contributes a hybrid
+batch of eight early and eight hash-diversified failing residuals. The next
+solve uses a strictly stronger formula. See `BOOLEAN_CNF.md` for the exact
+clauses and differential tests.
 
 `--branch 0` and `--branch 1` divide the same selected two-neighbor source
 observation by outgoing neighbor; `--branch -1` leaves the space unpartitioned.

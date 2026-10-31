@@ -57,11 +57,13 @@ int main(int argc, char **argv) {
           if (policy[u][L][p + 1][b] < 0) throw runtime_error("missing transit");
       }
 
-    // Keep the 16 failing masks with the lowest deterministic hash. This
-    // avoids the old bias toward the first numerically enumerated residuals
-    // without changing the number of residuals learned per candidate.
+    // Combine eight early failures (focused refinement of the lexicographic
+    // region) with eight failures chosen by a deterministic global hash. This
+    // keeps the 16-mask batch size while avoiding both the old all-prefix bias
+    // and the slower all-hash behavior measured in run 41168770051.
     using RankedMask = pair<uint64_t, int>;
     priority_queue<RankedMask> sample;
+    vector<int> first;
     long long obligations = 0, failures = 0;
     for (int mask = 0; mask < (1 << edges.size()); ++mask) {
       int adj[7] = {};
@@ -93,18 +95,26 @@ int main(int argc, char **argv) {
         if (!ok) { ++failures; failed_mask = true; }
       }
       if (failed_mask) {
+        if (first.size() < 8) first.push_back(mask);
         RankedMask item = {splitmix64((uint64_t)mask ^ 0x4b3131313232ULL), mask};
         if (sample.size() < 16) sample.push(item);
         else if (item < sample.top()) { sample.pop(); sample.push(item); }
       }
     }
-    vector<int> bad;
-    while (!sample.empty()) { bad.push_back(sample.top().second); sample.pop(); }
+    vector<RankedMask> hashed;
+    while (!sample.empty()) { hashed.push_back(sample.top()); sample.pop(); }
+    sort(hashed.begin(), hashed.end());
+    vector<int> bad = first;
+    for (auto [priority, mask] : hashed) {
+      (void)priority;
+      if (find(bad.begin(), bad.end(), mask) == bad.end()) bad.push_back(mask);
+      if (bad.size() == 16) break;
+    }
     sort(bad.begin(), bad.end());
     cout << "{\"masks\":" << (1 << edges.size())
          << ",\"obligations\":" << obligations
          << ",\"failures\":" << failures
-         << ",\"selector\":\"splitmix64-lowest-16\",\"counterexamples\":[";
+         << ",\"selector\":\"first-8-plus-splitmix64-8\",\"counterexamples\":[";
     for (size_t i = 0; i < bad.size(); ++i) {
       if (i) cout << ',';
       cout << bad[i];

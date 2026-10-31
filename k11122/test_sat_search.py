@@ -126,6 +126,7 @@ class DifferentialTests(unittest.TestCase):
             self.assertEqual(miner["masks"], verifier["masks"])
             self.assertEqual(miner["obligations"], verifier["obligations"])
             self.assertEqual(miner["failures"], verifier["failures"])
+            self.assertEqual(miner["selector"], "first-8-plus-splitmix64-8")
             self.assertGreater(miner["failures"], 0)
             self.assertTrue(miner["counterexamples"])
             for mask in miner["counterexamples"]:
