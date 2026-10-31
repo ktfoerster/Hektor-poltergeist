@@ -1,0 +1,19 @@
+{
+  "id": 13035141643,
+  "name": "k11122-cnf-target-3-branch-0-41180021309",
+  "size_in_bytes": 38467,
+  "url": "https://api.github.com/repos/ktfoerster/Hektor-poltergeist/actions/artifacts/13035141643",
+  "archive_download_url": "https://api.github.com/repos/ktfoerster/Hektor-poltergeist/actions/artifacts/13035141643/zip",
+  "expired": false,
+  "digest": "sha256:eb6055147ff9b40485321d82ccaef4f13fdcd748d241122534c3dfbe385c58e1",
+  "created_at": "2026-10-31T07:37:55Z",
+  "expires_at": "2026-11-30T07:37:55Z",
+  "workflow_run": {
+    "id": 41180021309,
+    "head_branch": "main",
+    "head_sha": "41dc471dc7538f589b5934e3936d346bc095551f"
+  },
+  "checkpoint_file": "t3-b0.json",
+  "checkpoint_sha256": "42281b0b10433df7eca2f70be18cacaf72567e00f44cc0af4d33e6abb9e6482a"
+}
+

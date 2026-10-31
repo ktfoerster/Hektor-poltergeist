@@ -7,8 +7,9 @@ colouring infrastructure demo. No existing unpublished manuscript or seed
 policy is uploaded by this implementation.
 
 ## Launch
-The dedicated workflow runs automatically on changes to `k11122/` on main,
-and manually via **Actions → K11122 Boolean SAT search → Run workflow**.
+The bounded campaign is closed, so the dedicated workflow is manual-only via
+**Actions → K11122 Boolean SAT search → Run workflow**. Repository preservation
+commits cannot silently start another four-job search.
 The current continuation uses the Boolean encoding documented in
 [`BOOLEAN_CNF.md`](BOOLEAN_CNF.md). It launches four jobs, two disjoint
 branches per orbit, each with a 20-minute search budget and a 30-minute hard
@@ -83,9 +84,9 @@ self-hosted runners, paid machine provisioning or infinite resubmission.
 
 
 ## Continuation version (31 October 2026)
-The workflow merges both branch checkpoints from run 41176610833 separately
+The workflow merges both branch checkpoints from run 41180021309 separately
 for each destination orbit. The four original checkpoint files and their
-artifact provenance are retained in `checkpoints/run-41176610833/`, so this
+artifact provenance are retained in `checkpoints/run-41180021309/`, so this
 continuation does not depend on expiring Actions downloads. Original ZIPs
 passed their GitHub SHA-256 digests, all CRC checks and all per-file hashes
 before checkpoint extraction. The merger rechecks checkpoint hashes, model,

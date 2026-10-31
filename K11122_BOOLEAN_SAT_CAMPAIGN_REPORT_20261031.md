@@ -306,3 +306,69 @@ the graph's one-bit classification remain unresolved. The latest four invalid
 tables now serve as phase hints for one final bounded continuation with fresh
 seeds and the stronger 2,568/2,053 unions.
 
+## Final continuation 41180021309
+
+The final bounded run
+[`41180021309`](https://github.com/ktfoerster/Hektor-poltergeist/actions/runs/41180021309)
+completed all four jobs normally. All eighteen tests and phase-policy hash
+checks passed. It produced seventeen additional complete finite-suite models;
+all were rejected by the unchanged exhaustive verifier.
+
+| Target | Branch | Rejected candidates | Final masks | Variables | Clauses | Final candidate failures |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 0 | 5 | 2,648 | 1,243,196 | 4,732,643 | 48,382 / 2,979,236 |
+| 0 | 1 | 4 | 2,632 | 1,235,066 | 4,703,697 | 40,008 / 2,979,236 |
+| 3 | 0 | 0 | 2,053 | 1,195,846 | 4,717,297 | no candidate |
+| 3 | 1 | 8 | 2,181 | 1,286,762 | 5,092,069 | 89,588 / 2,937,186 |
+
+Fresh builds of both independent C++ programs reproduced 524,288 masks and
+the exact 2,979,236/2,937,186 obligation counts for all three available final
+tables, including the failure totals above. Target-3/branch-0 produced no table.
+The final strict unions are 2,701 masks for target 0 and 2,181 for target 3.
+
+Final artifacts (retained through 30 November 2026):
+
+- [target 0, branch 0](https://github.com/ktfoerster/Hektor-poltergeist/actions/runs/41180021309/artifacts/13034617908), SHA-256 `fdef7b7b7cedd5f3ed720eb16bbe63ec795b0bf2ae254dd7afc2d19afa3a109d`
+- [target 0, branch 1](https://github.com/ktfoerster/Hektor-poltergeist/actions/runs/41180021309/artifacts/13035166567), SHA-256 `21a5dc175412b0e71fa790107a9a7dc32aa7494d268701243e47e977ab3c85cb`
+- [target 3, branch 0](https://github.com/ktfoerster/Hektor-poltergeist/actions/runs/41180021309/artifacts/13035141643), SHA-256 `eb6055147ff9b40485321d82ccaef4f13fdcd748d241122534c3dfbe385c58e1`
+- [target 3, branch 1](https://github.com/ktfoerster/Hektor-poltergeist/actions/runs/41180021309/artifacts/13035366063), SHA-256 `e5d967bbe3e4bed5c2100a9f8607a4f4b599bd4cb3319da81fead9cbd91c430a`
+
+## Final scientific status
+
+- Target-0 orbit: unresolved; both physical-first-hop branches are `UNKNOWN`.
+- Target-3 orbit: unresolved; both branches are `UNKNOWN`.
+- Graph: unresolved for one bit. The established 2–3-state bounds remain.
+- No valid table, independently checked UNSAT proof, or lower-bound upgrade was
+  obtained. No timeout, invalid candidate, or raw solver status is used as a
+  scientific conclusion.
+
+Relative to the campaign start, strict unconditional unions grew from
+1,221/1,027 to 2,701/2,181 masks. The Boolean matrices produced 217 complete
+finite-suite models, all independently rejected. The prior merged integer-rank
+SMT baseline produced zero candidates and learned zero masks in the same
+20-minute hosted budget. This is a substantial computational/search advance,
+but not a classification result.
+
+Reproduce the final inputs, tests, and one bounded branch with:
+
+```sh
+python -m pip install z3-solver==4.13.3.0 python-sat==1.8.dev24
+python -m unittest discover -s k11122 -p 'test_*.py' -v
+python k11122/merge_checkpoints.py --target 0 --output merged-t0.json
+python k11122/merge_checkpoints.py --target 3 --output merged-t3.json
+python k11122/sat_search.py --target 0 --branch 0 \
+  --backend cadical195 --seed 20261201 \
+  --phase-policy k11122/phase-seeds/t0-b0.tsv \
+  --seconds 1200 --solve-seconds 1200 --conflicts 200000 \
+  --resume merged-t0.json --output results/t0-b0-next
+```
+
+The main remaining limitation is proof production. Current runs use finite
+counterexample suites and return `UNKNOWN`; even a raw `UNSAT` would remain
+uncertified. A concrete next research step is a standalone deterministic
+DIMACS/provenance exporter plus a proof-producing solver and independent
+DRAT/LRAT checking. An UNSAT certificate for either current branch suite would
+still need the second branch for that orbit, while any SAT model must continue
+through full unchanged replay. The campaign workflow is manual-only after this
+handoff, preventing accidental further computation.
+

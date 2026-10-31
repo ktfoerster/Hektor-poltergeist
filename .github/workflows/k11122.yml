@@ -1,9 +1,6 @@
 name: K11122 Boolean SAT search
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths: ['k11122/**', '.github/workflows/k11122.yml']
 permissions:
   contents: read
   actions: read
