@@ -177,6 +177,8 @@ def checked_clause(witness, n, target, rows=None):
 def audit(directory):
     """Recheck hashes, masks, numbering and EACH CNF clause independently."""
     root = Path(directory)
+    if (root / "current").is_symlink():
+        root = (root / "current").resolve(strict=True)
     meta = json.loads((root / "manifest.json").read_text())
     if meta.get("encoding") != "source-reachable-lasso-v1" or meta.get("schema") != 1:
         raise ValueError("bundle encoding")

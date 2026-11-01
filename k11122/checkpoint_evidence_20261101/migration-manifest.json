@@ -1,0 +1,115 @@
+{
+  "backend": "cadical195",
+  "branch": 0,
+  "clause_body_sha256": "a7fb89ec22b0f04f6044ecd4cd470b20805852257f90acfb632e0b537e5378f0",
+  "clauses": 61467,
+  "commit": null,
+  "encoding": "source-reachable-lasso-v1",
+  "imported": {
+    "intersection_count": 2579,
+    "resumed_from": {
+      "formula_sha256": "2e7804447e05a496dc57725dae7f96ae9884911d6037d446f0f235e49c6e9319",
+      "manifest_sha256": "1e1ae796060995140c4d1c4f42d9e3f5f4641acf2dd181664b70b1fa19e3c572",
+      "migration": "independently rechecked full CNF and all witnesses",
+      "source_sha256": {
+        "lasso_batch.cpp": "92aeb9ce8ea4ee143142a8aa6a00ec200d3a2d6dd3aa26feacbd77f244c5753e",
+        "lasso_search.py": "786913dffc3cf2cd297ecf923f4456345c5ff44b0f08b6ef21d39a88bd199a18",
+        "lasso_witness.py": "2525c36cbcc75ead4ec6869fa71fa21aa6ab99a868a73d45ca3f575329db6d27",
+        "merge_checkpoints.py": "33333b8bc93814a034f2a222314ec2f638828d22cc98b91afc61774fb03d208c",
+        "proof_cnf.py": "2e3da11ddf68c8a42e705f24ff70d701ae81855bf8d9530ef79cd64b117770fa",
+        "sat_search.py": "e241e118ffc6143b988e245fa8a3145bbe2739c008fd43be381e02fe5655feb7",
+        "verify.cpp": "cb2f54d14187bd93efd211759445fed6e9b96624b784712c2a7a884c16fa4caf"
+      }
+    },
+    "source_root": "/workspace/scratch/6f1571aef5e4/Hektor-poltergeist/k11122/checkpoints/run-41180021309",
+    "sources": [
+      {
+        "artifact_id": 13034617908,
+        "count": 2648,
+        "file": "t0-b0.json",
+        "head_sha": "41dc471dc7538f589b5934e3936d346bc095551f",
+        "sha256": "6e8d4d570a62fb26ecd8680069b8b7aa51487b982ce26e09144212206b720ae1",
+        "source_sha256": {
+          "counterexample_miner.cpp": "f6512a30bf8f0d176960a5eb2dcd0a2afca95d99597860301048ef379758ae25",
+          "merge_checkpoints.py": "a17c2cd30b65a96cc8a782b1f29353506a2831cd5db6c05c70952579f259be6b",
+          "sat_search.py": "e241e118ffc6143b988e245fa8a3145bbe2739c008fd43be381e02fe5655feb7",
+          "verify.cpp": "cb2f54d14187bd93efd211759445fed6e9b96624b784712c2a7a884c16fa4caf"
+        },
+        "workflow_run_id": 41180021309
+      },
+      {
+        "artifact_id": 13035166567,
+        "count": 2632,
+        "file": "t0-b1.json",
+        "head_sha": "41dc471dc7538f589b5934e3936d346bc095551f",
+        "sha256": "8d40c916f29bf18cdcdae3fc09978de2de1a76a58f613e55e4f9c7b8859a297a",
+        "source_sha256": {
+          "counterexample_miner.cpp": "f6512a30bf8f0d176960a5eb2dcd0a2afca95d99597860301048ef379758ae25",
+          "merge_checkpoints.py": "a17c2cd30b65a96cc8a782b1f29353506a2831cd5db6c05c70952579f259be6b",
+          "sat_search.py": "e241e118ffc6143b988e245fa8a3145bbe2739c008fd43be381e02fe5655feb7",
+          "verify.cpp": "cb2f54d14187bd93efd211759445fed6e9b96624b784712c2a7a884c16fa4caf"
+        },
+        "workflow_run_id": 41180021309
+      }
+    ]
+  },
+  "masks": 2701,
+  "n": 7,
+  "progress": {
+    "audit_seconds": 1.6821792629925767,
+    "batch_binary_sha256": "8b48ea2248f9cfb46effc5736d0a3f5efb731b3c2e3c9655a0f941e461d55710",
+    "batch_cpp_seconds": 0.3599983580352273,
+    "batch_invocations": 69,
+    "batch_python_check_seconds": 0.21096948072954547,
+    "budget_seconds": 5.0,
+    "checkpoint_count": 1,
+    "checkpoint_hash_seconds": 0.027851155027747154,
+    "checkpoint_publish_seconds": 0.018583861005026847,
+    "checkpoint_seconds": 5.0,
+    "checkpoint_total_seconds": 0.054196251003304496,
+    "checkpoint_write_seconds": 0.0074363280000397936,
+    "completed_scans": 0,
+    "construction_seconds": 0.035841637989506125,
+    "elapsed_seconds": 5.001655372005189,
+    "finite_suite_candidates": 0,
+    "independent_replay_seconds": 0.0,
+    "inherited_witnesses": 43488,
+    "interrupted_scans": 70,
+    "new_witnesses": 6624,
+    "peak_rss_kib": 60328,
+    "policy_seconds": 0.2540540610643802,
+    "progress_seconds": 0.025476160953985527,
+    "raw_models": 70,
+    "replay_seconds": 0.8008702320657903,
+    "resume_seconds": 3.4969186469970737,
+    "snapshot_export_seconds": 0.03560138400644064,
+    "solver_seconds": 0.33082783104327973,
+    "status": "UNKNOWN",
+    "walker": "cpp"
+  },
+  "schema": 1,
+  "scope": "finite residual suite and one physical-first-hop branch",
+  "seed": 20261101,
+  "sha256": {
+    "cpp-batches.jsonl": "48ce35c95b84e20095e5080f59f2af2aeaf02c73564681dde6d8cfb7f7f74076",
+    "formula.cnf": "6419382a55f841b52e8df7eff3f45eac1358c351386779fc0ad27449f00816fa",
+    "last-policy.tsv": "c9949d183d74512266af7017224b6ac7be3f0278ffc6ca419d87fbb4e8d697d4",
+    "masks.json": "3a2af67a602ea6cace917d4fa69b39182e646accef73484bcb458df316a14187",
+    "masks.txt": "7a3c6ddfe70c50cfb07c645a55ab6ce130f4a0e01390e0d8cae730d64b448e1c",
+    "selectors.json": "f8ba60872dffb3db5966419f4030394ffd3cd9b6ea667eb9e6d2a352f2713785",
+    "witnesses.jsonl": "01b64ddf63c8ab344f69920f9ac31eeaba685b3fcc042dc807e371a43948b0f2"
+  },
+  "source_sha256": {
+    "lasso_batch.cpp": "92aeb9ce8ea4ee143142a8aa6a00ec200d3a2d6dd3aa26feacbd77f244c5753e",
+    "lasso_checkpoint.py": "1c4c76d27ba34976ac91a3a340de6992a83e6d5ea9bb6c60f24b02ea18c51c44",
+    "lasso_search.py": "0ca79647fc751658909581846220f2224928872efd882be3f15537c1c2657d5b",
+    "lasso_witness.py": "4aaff45087f4b6fccff207f19f845498b9e7902c5e7a6dbf4cfbc4cb05804d5b",
+    "merge_checkpoints.py": "33333b8bc93814a034f2a222314ec2f638828d22cc98b91afc61774fb03d208c",
+    "proof_cnf.py": "2e3da11ddf68c8a42e705f24ff70d701ae81855bf8d9530ef79cd64b117770fa",
+    "sat_search.py": "e241e118ffc6143b988e245fa8a3145bbe2739c008fd43be381e02fe5655feb7",
+    "verify.cpp": "cb2f54d14187bd93efd211759445fed6e9b96624b784712c2a7a884c16fa4caf"
+  },
+  "target": 0,
+  "variables": 4736,
+  "witnesses": 50112
+}

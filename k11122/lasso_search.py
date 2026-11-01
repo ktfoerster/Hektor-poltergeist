@@ -5,6 +5,7 @@ negative result. Both require the existing independent certification chain.
 """
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import resource
@@ -12,6 +13,7 @@ import shutil
 import subprocess
 import time
 
+from lasso_checkpoint import Checkpoints, checkpoint_root
 from merge_checkpoints import LATEST, merge
 from sat_search import BooleanEncoding, partition, write_policy
 from lasso_witness import (sha, selector_rows, trace, checked_clause, audit)
@@ -59,29 +61,43 @@ def checked_policy(payload, reference_rows):
     return result
 
 
+def source_names():
+    return ("lasso_search.py", "lasso_witness.py", "lasso_batch.cpp", "sat_search.py",
+             "merge_checkpoints.py", "verify.cpp", "proof_cnf.py", "lasso_checkpoint.py")
+
+
 def source_hashes():
-    names = ("lasso_search.py", "lasso_witness.py", "lasso_batch.cpp", "sat_search.py",
-             "merge_checkpoints.py", "verify.cpp", "proof_cnf.py")
-    return {name: sha(Path(__file__).with_name(name)) for name in names}
+    return {name: sha(Path(__file__).with_name(name)) for name in source_names()}
 
 
 def snapshot(out, enc, masks, target, branch, witnesses, stats, imported):
-    """Atomically replace complete checkpoint records; no solver-memory claim."""
+    """Export into a private directory; Checkpoints publishes the complete bundle."""
     out = Path(out)
+    checkpoint_started = time.monotonic()
+    hash_seconds = 0.0
+    def measured_sha(path):
+        nonlocal hash_seconds
+        before = time.monotonic()
+        result = sha(path)
+        hash_seconds += time.monotonic() - before
+        return result
     enc.body.flush()
-    if sha(enc.body_path) != enc.fingerprint.hexdigest():
+    if measured_sha(enc.body_path) != enc.fingerprint.hexdigest():
         raise RuntimeError("CNF streaming fingerprint disagreement")
+    write_started = time.monotonic()
     formula_tmp = out / "formula.cnf.tmp"
     with formula_tmp.open("wb") as f, enc.body_path.open("rb") as body:
         f.write(f"p cnf {enc.top} {enc.clause_count}\n".encode())
         shutil.copyfileobj(body, f)
     formula_tmp.replace(out / "formula.cnf")
+    write_seconds = time.monotonic() - write_started
     meta = dict(schema=1, encoding="source-reachable-lasso-v1",
                 n=enc.n, target=target, branch=branch,
                 variables=enc.top, clauses=enc.clause_count,
                 witnesses=witnesses, masks=len(masks),
                 clause_body_sha256=enc.fingerprint.hexdigest(),
-                source_sha256=source_hashes(), imported=imported,
+                source_sha256={name: measured_sha(Path(__file__).with_name(name))
+                               for name in source_names()}, imported=imported,
                 backend=enc.backend, seed=enc.seed,
                 scope="finite residual suite and one physical-first-hop branch",
                 progress=stats,
@@ -90,10 +106,14 @@ def snapshot(out, enc, masks, target, branch, witnesses, stats, imported):
     for optional in ("masks.txt", "cpp-batches.jsonl", "last-policy.tsv"):
         if (out / optional).is_file():
             names.append(optional)
-    meta["sha256"] = {name: sha(out / name) for name in names}
+    meta["sha256"] = {name: measured_sha(out / name) for name in names}
+    write_started = time.monotonic()
     temporary = out / "manifest.json.tmp"
     temporary.write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n")
     temporary.replace(out / "manifest.json")
+    stats["checkpoint_write_seconds"] = stats.get("checkpoint_write_seconds", 0.0) + write_seconds + time.monotonic() - write_started
+    stats["checkpoint_hash_seconds"] = stats.get("checkpoint_hash_seconds", 0.0) + hash_seconds
+    stats["snapshot_export_seconds"] = stats.get("snapshot_export_seconds", 0.0) + time.monotonic() - checkpoint_started
     return meta
 
 
@@ -119,7 +139,9 @@ def independent_replay(out, policy, n, target, verifier):
 def run(output, n, target, branch, masks, seconds, verifier=None,
         resume=None, seed=20261101, backend="cadical195",
         imported=None, max_new_per_round=96, walker="python", batch_binary=None,
-        allow_audited_migration=False):
+        allow_audited_migration=False, checkpoint_seconds=5.0):
+    if not math.isfinite(checkpoint_seconds) or checkpoint_seconds < 0:
+        raise ValueError("checkpoint interval must be finite and nonnegative")
     if not 0.0 < seconds <= 180:
         raise ValueError("bounded run must be 0..180 seconds")
     if (not isinstance(masks, list) or not masks or
@@ -135,6 +157,9 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
     independent = selector_rows(n, target)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
+    bundle = output
+    checkpoints = Checkpoints(bundle, checkpoint_seconds)
+    output = checkpoints.work
     started = time.monotonic()
     construction = time.monotonic()
     enc = CapturedPolicy(n, target, output / "clauses.body", seed, backend)
@@ -156,6 +181,15 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                  batch_invocations=0, batch_cpp_seconds=0.0,
                  batch_python_check_seconds=0.0,
                  batch_binary_sha256=sha(batch_binary) if walker == "cpp" else None)
+    stats.update(checkpoint_seconds=checkpoint_seconds, checkpoint_total_seconds=0.0,
+                 checkpoint_hash_seconds=0.0, snapshot_export_seconds=0.0,
+                 checkpoint_write_seconds=0.0, checkpoint_publish_seconds=0.0,
+                 independent_replay_seconds=0.0, checkpoint_count=0, progress_seconds=0.0, policy_seconds=0.0,
+                 resume_seconds=0.0, audit_seconds=0.0)
+    def save(force=False):
+        stats["elapsed_seconds"] = time.monotonic() - started
+        checkpoints.save(enc, masks, target, branch, witness_count, stats,
+                         imported, snapshot, force=force)
     learned = set()
     if imported is None:
         imported = {}
@@ -165,8 +199,11 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
     try:
         with (output / "witnesses.jsonl").open("w") as records:
             if resume is not None:
-                previous = Path(resume)
+                resume_started = time.monotonic()
+                previous = checkpoint_root(resume)
+                audit_started = time.monotonic()
                 audit(previous)
+                stats["audit_seconds"] += time.monotonic() - audit_started
                 old = json.loads((previous / "manifest.json").read_text())
                 if (old["n"], old["target"], old["branch"]) != (n, target, branch):
                     raise ValueError("resume model/branch mismatch")
@@ -192,8 +229,9 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                     records.write(line + "\n")
                     witness_count += 1
                     stats["inherited_witnesses"] += 1
+                stats["resume_seconds"] = time.monotonic() - resume_started
             records.flush()
-            snapshot(output, enc, masks, target, branch, witness_count, stats, imported)
+            save(force=True)
             iteration = 0
             while time.monotonic() - started < seconds:
                 iteration += 1
@@ -207,15 +245,16 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                     # Retain the worker's learned clauses across bounded slices.
                     if iteration % 5 == 0:
                         stats["elapsed_seconds"] = time.monotonic() - started
-                        snapshot(output, enc, masks, target, branch,
-                                 witness_count, stats, imported)
+                        save()
                     continue
                 if outcome is False:
                     stats["status"] = "UNSAT_UNCERTIFIED"
                     break
+                policy_started = time.monotonic()
                 policy = checked_policy(payload, independent)
                 stats["raw_models"] += 1
                 write_policy(output / "last-policy.tsv", n, target, policy)
+                stats["policy_seconds"] += time.monotonic() - policy_started
                 added = 0
                 round_new = set()
                 full_scan = True
@@ -226,6 +265,7 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                     if remaining <= 0:
                         full_scan = False
                         stats["interrupted_scans"] += 1
+                        stats["replay_seconds"] += time.monotonic() - before
                         break
                     cpp_started = time.monotonic()
                     stats["batch_invocations"] += 1
@@ -238,6 +278,7 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                     except subprocess.TimeoutExpired:
                         full_scan = False
                         stats["interrupted_scans"] += 1
+                        stats["replay_seconds"] += time.monotonic() - before
                         break
                     finally:
                         stats["batch_cpp_seconds"] += time.monotonic() - cpp_started
@@ -321,8 +362,10 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                 if full_scan and not added:
                     stats["finite_suite_candidates"] += 1
                     stats["status"] = "FINITE_SUITE_SAT_UNVERIFIED"
+                    verification_started = time.monotonic()
                     stats["independent_replay"] = independent_replay(
                         output, policy, n, target, verifier)
+                    stats["independent_replay_seconds"] += time.monotonic() - verification_started
                     if stats["independent_replay"]["status"] == "VERIFIED_POSITIVE_ONE_ORBIT":
                         stats["status"] = "VERIFIED_POSITIVE_ONE_ORBIT"
                     elif stats["independent_replay"]["status"] == "FINITE_SAT_GLOBALLY_INVALID":
@@ -330,17 +373,25 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                     break
                 records.flush()
                 stats["elapsed_seconds"] = time.monotonic() - started
-                snapshot(output, enc, masks, target, branch,
-                         witness_count, stats, imported)
+                save()
             stats["elapsed_seconds"] = time.monotonic() - started
             stats["peak_rss_kib"] = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
             records.flush()
-            snapshot(output, enc, masks, target, branch, witness_count, stats, imported)
+            save(force=True)
     finally:
         enc.close()
-    result = audit(output)
-    (output / "audit.json").write_text(json.dumps(result, indent=2) + "\n")
-    (output / "summary.json").write_text(json.dumps(stats, indent=2, sort_keys=True) + "\n")
+    stats["elapsed_seconds"] = time.monotonic() - started
+    audit_started = time.monotonic()
+    result = audit(bundle)
+    stats["audit_seconds"] += time.monotonic() - audit_started
+    stats["total_seconds"] = time.monotonic() - started
+    # Nonoverlapping search buckets; resume includes its initial audit.
+    stats["other_seconds"] = stats["elapsed_seconds"] - sum(stats[k] for k in (
+        "construction_seconds", "resume_seconds", "solver_seconds", "replay_seconds",
+        "policy_seconds", "checkpoint_total_seconds", "progress_seconds",
+        "independent_replay_seconds"))
+    (bundle / "audit.json").write_text(json.dumps(result, indent=2) + "\n")
+    (bundle / "summary.json").write_text(json.dumps(stats, indent=2, sort_keys=True) + "\n")
     (output / "clauses.body").unlink(missing_ok=True)
     return stats
 
@@ -353,6 +404,8 @@ def main():
     p.add_argument("--branch", type=int, choices=(-1, 0, 1), default=0)
     p.add_argument("--root", type=Path, default=LATEST)
     p.add_argument("--seconds", type=float, default=60)
+    p.add_argument("--checkpoint-seconds", type=float, default=5.0,
+                   help="complete checkpoint interval; 0 publishes every round")
     p.add_argument("--resume", type=Path)
     p.add_argument("--verify", type=Path)
     p.add_argument("--walker", choices=("python", "cpp"), default="python")
@@ -376,7 +429,8 @@ def main():
                    "intersection_count": union["intersection_count"],
                    "source_root": str(a.root)},
                walker=a.walker, batch_binary=a.batch_binary,
-               allow_audited_migration=a.allow_audited_migration)
+               allow_audited_migration=a.allow_audited_migration,
+               checkpoint_seconds=a.checkpoint_seconds)
     print(json.dumps(data, indent=2, sort_keys=True))
 
 
