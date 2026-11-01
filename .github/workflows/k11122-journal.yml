@@ -75,7 +75,7 @@ jobs:
         run: |
           cp k11122/lasso_search.py k11122/lasso_journal.py k11122/test_lasso_batch.py k11122/test_lasso_journal.py .github/workflows/k11122-journal.yml evidence/source/
           echo "$GITHUB_SHA" > evidence/commit.txt
-          find evidence -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
+          find evidence -type f ! -name SHA256SUMS ! -name .owner.lock -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
       - uses: actions/upload-artifact@v4
         if: always()
         with:
