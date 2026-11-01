@@ -15,6 +15,7 @@ import time
 from merge_checkpoints import LATEST, merge
 from sat_search import BooleanEncoding, partition, write_policy
 from lasso_witness import (sha, selector_rows, trace, checked_clause, audit)
+from lasso_journal import Journal, check_committed, iter_committed_lines, lock_directory
 
 
 class CapturedPolicy(BooleanEncoding):
@@ -60,7 +61,7 @@ def checked_policy(payload, reference_rows):
 
 
 def source_hashes():
-    names = ("lasso_search.py", "lasso_witness.py", "lasso_batch.cpp", "sat_search.py",
+    names = ("lasso_search.py", "lasso_witness.py", "lasso_batch.cpp", "lasso_journal.py", "sat_search.py",
              "merge_checkpoints.py", "verify.cpp", "proof_cnf.py")
     return {name: sha(Path(__file__).with_name(name)) for name in names}
 
@@ -119,13 +120,15 @@ def independent_replay(out, policy, n, target, verifier):
 def run(output, n, target, branch, masks, seconds, verifier=None,
         resume=None, seed=20261101, backend="cadical195",
         imported=None, max_new_per_round=96, walker="python", batch_binary=None,
-        allow_audited_migration=False):
+        allow_audited_migration=False, checkpoint_mode="journal"):
     if not 0.0 < seconds <= 180:
         raise ValueError("bounded run must be 0..180 seconds")
     if (not isinstance(masks, list) or not masks or
             masks != sorted(set(masks)) or
             any(type(x) is not int for x in masks)):
         raise ValueError("require nonempty strictly sorted frozen masks")
+    if checkpoint_mode not in ("journal", "full"):
+        raise ValueError("checkpoint mode must be journal or full")
     if walker not in ("python", "cpp"):
         raise ValueError("walker must be python or cpp")
     if walker == "cpp":
@@ -135,6 +138,8 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
     independent = selector_rows(n, target)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
+    # Nonblocking lock; never kill or replace another run's local owner.
+    owner = lock_directory(output)
     started = time.monotonic()
     construction = time.monotonic()
     enc = CapturedPolicy(n, target, output / "clauses.body", seed, backend)
@@ -155,19 +160,43 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                  completed_scans=0, interrupted_scans=0, walker=walker,
                  batch_invocations=0, batch_cpp_seconds=0.0,
                  batch_python_check_seconds=0.0,
-                 batch_binary_sha256=sha(batch_binary) if walker == "cpp" else None)
+                 batch_binary_sha256=sha(batch_binary) if walker == "cpp" else None,
+                 checkpoint_mode=checkpoint_mode, checkpoint_seconds=0.0,
+                 checkpoint_count=0, final_export_seconds=0.0,
+                 recovered_uncommitted_body_bytes=0,
+                 recovered_uncommitted_witness_bytes=0)
     learned = set()
     if imported is None:
         imported = {}
     else:
         imported = dict(imported)
     witness_count = 0
+    ledger = Journal(output, n, target, branch, masks, source_hashes(), imported)
+    def record_witness(records, line):
+        ledger.append(records, line)
+    def save_checkpoint(records):
+        before = time.monotonic()
+        if checkpoint_mode == "journal":
+            ledger.commit(enc, records, witness_count, stats)
+        else:
+            records.flush()
+            snapshot(output, enc, masks, target, branch, witness_count, stats, imported)
+        stats["checkpoint_seconds"] += time.monotonic() - before
+        stats["checkpoint_count"] += 1
     try:
-        with (output / "witnesses.jsonl").open("w") as records:
+        with (output / "witnesses.jsonl").open("wb") as records:
             if resume is not None:
                 previous = Path(resume)
-                audit(previous)
-                old = json.loads((previous / "manifest.json").read_text())
+                if (previous / "manifest.json").is_file():
+                    audit(previous)
+                    old = json.loads((previous / "manifest.json").read_text())
+                    resume_lines = (previous / "witnesses.jsonl").read_text().splitlines()
+                else:
+                    verified = check_committed(previous)
+                    old = verified["metadata"]
+                    stats["recovered_uncommitted_body_bytes"] = verified["uncommitted_body_bytes"]
+                    stats["recovered_uncommitted_witness_bytes"] = verified["uncommitted_witness_bytes"]
+                    resume_lines = iter_committed_lines(previous, old["witness_bytes"])
                 if (old["n"], old["target"], old["branch"]) != (n, target, branch):
                     raise ValueError("resume model/branch mismatch")
                 if json.loads((previous / "masks.json").read_text()) != masks:
@@ -175,25 +204,31 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                 migrated = old["source_sha256"] != source_hashes()
                 if migrated and not allow_audited_migration:
                     raise ValueError("resume source mismatch; use explicit audited migration")
+                checkpoint_file = ("manifest.json" if (previous / "manifest.json").is_file()
+                                   else "journal.json")
                 imported["resumed_from"] = {
-                    "manifest_sha256": sha(previous / "manifest.json"),
-                    "formula_sha256": sha(previous / "formula.cnf"),
+                    "checkpoint_kind": "complete" if checkpoint_file == "manifest.json" else "journal-prefix",
+                    "checkpoint_sha256": sha(previous / checkpoint_file),
+                    "formula_sha256": (sha(previous / "formula.cnf")
+                                       if checkpoint_file == "manifest.json"
+                                       else old["clause_body_sha256"]),
                     "source_sha256": old["source_sha256"],
-                    "migration": "independently rechecked full CNF and all witnesses"
+                    "migration": "independently rechecked CNF and every committed witness"
                                  if migrated else "same dependency hashes",
                 }
-                for line in (previous / "witnesses.jsonl").read_text().splitlines():
+                if checkpoint_file == "manifest.json":
+                    imported["resumed_from"]["manifest_sha256"] = sha(previous / checkpoint_file)
+                for line in resume_lines:
                     item = json.loads(line)
                     clause = checked_clause(item["witness"], n, target, independent)
                     if tuple(clause) in learned:
                         raise ValueError("duplicate resumed blocking clause")
                     learned.add(tuple(clause))
                     enc.add_clause(clause)
-                    records.write(line + "\n")
+                    record_witness(records, item)
                     witness_count += 1
                     stats["inherited_witnesses"] += 1
-            records.flush()
-            snapshot(output, enc, masks, target, branch, witness_count, stats, imported)
+            save_checkpoint(records)
             iteration = 0
             while time.monotonic() - started < seconds:
                 iteration += 1
@@ -207,8 +242,7 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                     # Retain the worker's learned clauses across bounded slices.
                     if iteration % 5 == 0:
                         stats["elapsed_seconds"] = time.monotonic() - started
-                        snapshot(output, enc, masks, target, branch,
-                                 witness_count, stats, imported)
+                        save_checkpoint(records)
                     continue
                 if outcome is False:
                     stats["status"] = "UNSAT_UNCERTIFIED"
@@ -304,9 +338,7 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                     learned.add(tuple(clause))
                     round_new.add(tuple(clause))
                     enc.add_clause(clause)
-                    records.write(json.dumps(
-                        {"witness": witness, "clause": clause},
-                        sort_keys=True, separators=(",", ":")) + "\n")
+                    record_witness(records, {"witness": witness, "clause": clause})
                     witness_count += 1
                     stats["new_witnesses"] += 1
                     added += 1
@@ -328,20 +360,26 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                     elif stats["independent_replay"]["status"] == "FINITE_SAT_GLOBALLY_INVALID":
                         stats["status"] = "FINITE_SAT_GLOBALLY_INVALID"
                     break
-                records.flush()
                 stats["elapsed_seconds"] = time.monotonic() - started
-                snapshot(output, enc, masks, target, branch,
-                         witness_count, stats, imported)
+                save_checkpoint(records)
             stats["elapsed_seconds"] = time.monotonic() - started
             stats["peak_rss_kib"] = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-            records.flush()
-            snapshot(output, enc, masks, target, branch, witness_count, stats, imported)
+            save_checkpoint(records)
+            # Journal prefix is the durable checkpoint; conventional final artifact once.
+            if checkpoint_mode == "journal":
+                final_start = time.monotonic()
+                snapshot(output, enc, masks, target, branch,
+                         witness_count, stats, imported)
+                stats["final_export_seconds"] = time.monotonic() - final_start
     finally:
         enc.close()
+        owner.close()
     result = audit(output)
     (output / "audit.json").write_text(json.dumps(result, indent=2) + "\n")
     (output / "summary.json").write_text(json.dumps(stats, indent=2, sort_keys=True) + "\n")
-    (output / "clauses.body").unlink(missing_ok=True)
+    if checkpoint_mode == "full":
+        (output / "clauses.body").unlink(missing_ok=True)
+    # In journal mode preserve the committed clause prefix for crash recovery.
     return stats
 
 
@@ -357,6 +395,8 @@ def main():
     p.add_argument("--verify", type=Path)
     p.add_argument("--walker", choices=("python", "cpp"), default="python")
     p.add_argument("--batch-binary", type=Path, help="compiled C++ scanner (only for --walker cpp)")
+    p.add_argument("--checkpoint-mode", choices=("full", "journal"), default="journal",
+                   help="full exports every round; journal commits fsynced prefixes")
     p.add_argument("--allow-audited-migration", action="store_true",
                    help="explicitly recheck old complete witness CNF despite source version change")
     p.add_argument("--seed", type=int, default=20261101)
@@ -376,7 +416,8 @@ def main():
                    "intersection_count": union["intersection_count"],
                    "source_root": str(a.root)},
                walker=a.walker, batch_binary=a.batch_binary,
-               allow_audited_migration=a.allow_audited_migration)
+               allow_audited_migration=a.allow_audited_migration,
+               checkpoint_mode=a.checkpoint_mode)
     print(json.dumps(data, indent=2, sort_keys=True))
 
 

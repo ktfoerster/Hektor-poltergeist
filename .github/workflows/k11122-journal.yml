@@ -1,0 +1,84 @@
+name: K11122 incremental journal comparison
+on:
+  workflow_dispatch:
+  push:
+    branches: ['research/k11122-journal-20261101']
+    paths:
+      - 'k11122/lasso_search.py'
+      - 'k11122/lasso_journal.py'
+      - 'k11122/test_lasso_journal.py'
+      - 'k11122/test_lasso_batch.py'
+      - '.github/workflows/k11122-journal.yml'
+permissions:
+  contents: read
+concurrency:
+  group: k11122-journal-pilot
+  cancel-in-progress: false
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Full regression tests
+        run: |
+          mkdir -p evidence/source
+          python -m pip install python-sat==1.8.dev24 z3-solver==4.13.3.0
+          python -m pip freeze > evidence/dependencies.txt
+          python -m unittest discover -s k11122 -p 'test_*.py' -v > evidence/tests.log 2>&1 || { tail -n 120 evidence/tests.log; exit 1; }
+          tail -n 12 evidence/tests.log
+      - name: Unchanged full verifier and C++ walker
+        run: |
+          g++ -O3 -std=c++17 -Wall -Wextra -Werror k11122/lasso_batch.cpp -o evidence/lasso_batch
+          g++ -O3 -std=c++17 k11122/verify.cpp -o evidence/verify
+          sha256sum k11122/lasso_batch.cpp k11122/verify.cpp evidence/lasso_batch evidence/verify > evidence/tool-hashes.txt
+          python k11122/merge_checkpoints.py --target 0 --output evidence/merged-0.json
+          python k11122/merge_checkpoints.py --target 3 --output evidence/merged-3.json
+      - name: Same 2701-mask target-0 branch-0 benchmark for both checkpoint modes
+        run: |
+          python -c "import json; assert len(json.load(open('evidence/merged-0.json'))['masks'])==2701"
+          for mode in full journal; do
+            /usr/bin/time -v -o "evidence/$mode-time.txt" python k11122/lasso_search.py run --target 0 --branch 0 --walker cpp --batch-binary "$PWD/evidence/lasso_batch" --verify "$PWD/evidence/verify" --seed 20261101 --seconds 35 --checkpoint-mode "$mode" --output "evidence/$mode" > "evidence/$mode-output.json"
+            python k11122/lasso_search.py audit --output "evidence/$mode" > "evidence/$mode-audit.json"
+          done
+          python - <<'PY'
+          import json, pathlib, sys
+          sys.path.insert(0,'k11122')
+          from lasso_journal import check_committed
+          root=pathlib.Path('evidence')
+          assert json.loads((root/'full/masks.json').read_text())==json.loads((root/'journal/masks.json').read_text())
+          assert json.loads((root/'full/selectors.json').read_text())==json.loads((root/'journal/selectors.json').read_text())
+          verified=check_committed(root/'journal')
+          assert verified['verified_witnesses']==json.loads((root/'journal/manifest.json').read_text())['witnesses']
+          result={}
+          for mode in ('full','journal'):
+            s=json.loads((root/mode/'summary.json').read_text())
+            m=json.loads((root/mode/'manifest.json').read_text())
+            a=json.loads((root/mode/'audit.json').read_text())
+            assert a['status']=='CHECKED'
+            result[mode]={k:s[k] for k in ('status','raw_models','new_witnesses','checkpoint_seconds','checkpoint_count','solver_seconds','replay_seconds','elapsed_seconds','peak_rss_kib')}
+            result[mode].update(variables=m['variables'],clauses=m['clauses'],cnf_sha256=m['sha256']['formula.cnf'])
+          result['scope']='Same target-0 branch-0, 2701 masks, seed 20261101 and 35-second end-to-end search; not graph classification'
+          (root/'comparison.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(result,indent=2))
+          PY
+      - name: Independent bounded target-3 journal
+        run: |
+          python -c "import json; assert len(json.load(open('evidence/merged-3.json'))['masks'])==2181"
+          /usr/bin/time -v -o evidence/target3-time.txt python k11122/lasso_search.py run --target 3 --branch 0 --walker cpp --batch-binary "$PWD/evidence/lasso_batch" --verify "$PWD/evidence/verify" --seconds 12 --checkpoint-mode journal --output evidence/target3 > evidence/target3-output.json
+          python k11122/lasso_search.py audit --output evidence/target3 > evidence/target3-audit.json
+      - name: Preserve exact evidence and hash manifest
+        if: always()
+        run: |
+          cp k11122/lasso_search.py k11122/lasso_journal.py k11122/test_lasso_batch.py k11122/test_lasso_journal.py .github/workflows/k11122-journal.yml evidence/source/
+          echo "$GITHUB_SHA" > evidence/commit.txt
+          find evidence -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k11122-incremental-journal-evidence
+          path: evidence/
+          retention-days: 30
