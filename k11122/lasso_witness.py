@@ -188,7 +188,8 @@ def audit(directory):
         if Path(filename).name != filename or sha(root / filename) != digest:
             raise ValueError("bundle hash mismatch: " + filename)
     expected_rows = selector_rows(n, target)
-    expected_map = [[*key, choices] for key, choices in expected_rows.items()]
+    expected_map = [[*key, [[action, var] for action, var in choices]]
+                    for key, choices in expected_rows.items()]
     if json.loads((root / "selectors.json").read_text()) != expected_map:
         raise ValueError("selector map mismatch")
     masks = json.loads((root / "masks.json").read_text())
