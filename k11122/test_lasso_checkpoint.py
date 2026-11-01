@@ -128,33 +128,46 @@ class CheckpointTests(unittest.TestCase):
                 audit(root)
 
     def test_sigkill_during_pointer_publication(self):
-        # Kill a real process after all new generation files are durable but
-        # immediately before the pointer replacement. No graceful cleanup runs.
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)/'run'
-            code = '''
+        # Real process deaths before commit, after pointer rename, and after
+        # directory fsync: no exception handler or graceful cleanup can run.
+        for point in ('before', 'after', 'durable'):
+            with self.subTest(point=point), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)/'run'
+                code = """
 import os, signal, sys
 from pathlib import Path
+import lasso_checkpoint
 from test_lasso_checkpoint import CheckpointTests
 case = CheckpointTests()
 root = Path(sys.argv[1])
+point = sys.argv[2]
 cp, save, stats = case.fixture(root)
 original = Path.replace
+sync = lasso_checkpoint.sync_directory
 def stop(path, target):
-    if path.name == 'current.tmp':
+    if path.name == 'current.tmp' and point == 'before':
         os.kill(os.getpid(), signal.SIGKILL)
-    return original(path, target)
+    result = original(path, target)
+    if path.name == 'current.tmp' and point == 'after':
+        os.kill(os.getpid(), signal.SIGKILL)
+    return result
+def sync_then_stop(path):
+    sync(path)
+    if path == root and point == 'durable':
+        os.kill(os.getpid(), signal.SIGKILL)
 Path.replace = stop
+lasso_checkpoint.sync_directory = sync_then_stop
 save(1)
-'''
-            env = dict(os.environ, PYTHONPATH=str(Path(__file__).parent.resolve()))
-            result = subprocess.run([sys.executable, '-c', code, str(root)], env=env,
-                                    timeout=10, capture_output=True, text=True)
-            self.assertEqual(result.returncode, -signal.SIGKILL, result.stderr)
-            self.assertEqual(audit(root)['witnesses'], 0)
-            result = run(Path(temp)/'resumed', 4, 3, -1, [41], 1, resume=root)
-            self.assertEqual(result['inherited_witnesses'], 0)
-            self.assertEqual(audit(Path(temp)/'resumed')['status'], 'CHECKED')
+"""
+                env = dict(os.environ, PYTHONPATH=str(Path(__file__).parent.resolve()))
+                result = subprocess.run([sys.executable, '-c', code, str(root), point],
+                                        env=env, timeout=10, capture_output=True, text=True)
+                self.assertEqual(result.returncode, -signal.SIGKILL, result.stderr)
+                expected = 0 if point == 'before' else 1
+                self.assertEqual(audit(root)['witnesses'], expected)
+                result = run(Path(temp)/'resumed', 4, 3, -1, [41], 1, resume=root)
+                self.assertEqual(result['inherited_witnesses'], expected)
+                self.assertEqual(audit(Path(temp)/'resumed')['status'], 'CHECKED')
 
     def test_audit_pins_generation_during_concurrent_publication(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -243,6 +256,40 @@ save(1)
             self.assertEqual(result['inherited_witnesses'], 1)
             self.assertTrue((resumed/'witnesses.jsonl').read_bytes().endswith(b'\n'))
             self.assertEqual(audit(resumed)['status'], 'CHECKED')
+
+    def test_verifier_log_integrity(self):
+        for defect in ('contents', 'missing_hash'):
+            with self.subTest(defect=defect), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)/'run'
+                cp, save, stats = self.fixture(root)
+                log = cp.work/'exhaustive-verifier.log'
+                log.write_text('test verifier transcript; not a proof\n')
+                save(1)
+                self.assertEqual(audit(root)['status'], 'CHECKED')
+                manifest = root/'manifest.json'
+                meta = json.loads(manifest.read_text())
+                self.assertEqual(meta['sha256']['exhaustive-verifier.log'],
+                                 sha(root/'exhaustive-verifier.log'))
+                if defect == 'contents':
+                    (root/'exhaustive-verifier.log').write_text('corrupted transcript')
+                else:
+                    del meta['sha256']['exhaustive-verifier.log']
+                    manifest.write_text(json.dumps(meta))
+                with self.assertRaises(ValueError):
+                    audit(root)
+
+    def test_witness_cap_validation_and_provenance(self):
+        with tempfile.TemporaryDirectory() as temp:
+            for cap in (0, -1, True, 1.5):
+                with self.assertRaises(ValueError):
+                    run(Path(temp)/'invalid', 4, 3, -1, [41], 1, max_new_per_round=cap)
+                self.assertFalse((Path(temp)/'invalid').exists())
+            out = Path(temp)/'valid'
+            summary = run(out, 4, 3, -1, [41], 1, max_new_per_round=1)
+            self.assertEqual(summary['max_new_per_round'], 1)
+            manifest = json.loads((out/'manifest.json').read_text())
+            self.assertEqual(manifest['progress']['max_new_per_round'], 1)
+            self.assertEqual(audit(out)['status'], 'CHECKED')
 
     def test_invalid_interval(self):
         with tempfile.TemporaryDirectory() as temp:

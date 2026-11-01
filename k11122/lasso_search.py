@@ -103,7 +103,8 @@ def snapshot(out, enc, masks, target, branch, witnesses, stats, imported):
                 progress=stats,
                 commit=os.environ.get("GITHUB_SHA"))
     names = ["formula.cnf", "selectors.json", "masks.json", "witnesses.jsonl"]
-    for optional in ("masks.txt", "cpp-batches.jsonl", "last-policy.tsv"):
+    for optional in ("masks.txt", "cpp-batches.jsonl", "last-policy.tsv",
+                     "exhaustive-verifier.log"):
         if (out / optional).is_file():
             names.append(optional)
     meta["sha256"] = {name: measured_sha(out / name) for name in names}
@@ -140,6 +141,8 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
         resume=None, seed=20261101, backend="cadical195",
         imported=None, max_new_per_round=96, walker="python", batch_binary=None,
         allow_audited_migration=False, checkpoint_seconds=5.0):
+    if type(max_new_per_round) is not int or max_new_per_round < 1:
+        raise ValueError("max_new_per_round must be a positive integer")
     if not math.isfinite(checkpoint_seconds) or checkpoint_seconds < 0:
         raise ValueError("checkpoint interval must be finite and nonnegative")
     if not 0.0 < seconds <= 180:
@@ -177,6 +180,7 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                  new_witnesses=0, inherited_witnesses=0,
                  solver_seconds=0.0, replay_seconds=0.0,
                  construction_seconds=base_seconds, budget_seconds=seconds,
+                 max_new_per_round=max_new_per_round,
                  completed_scans=0, interrupted_scans=0, walker=walker,
                  batch_invocations=0, batch_cpp_seconds=0.0,
                  batch_python_check_seconds=0.0,
@@ -405,6 +409,8 @@ def main():
     p.add_argument("--branch", type=int, choices=(-1, 0, 1), default=0)
     p.add_argument("--root", type=Path, default=LATEST)
     p.add_argument("--seconds", type=float, default=60)
+    p.add_argument("--max-new-per-round", type=int, default=96,
+                   help="maximum newly checked witness clauses per SAT assignment")
     p.add_argument("--checkpoint-seconds", type=float, default=5.0,
                    help="complete checkpoint interval; 0 publishes every round")
     p.add_argument("--resume", type=Path)
@@ -431,7 +437,8 @@ def main():
                    "source_root": str(a.root)},
                walker=a.walker, batch_binary=a.batch_binary,
                allow_audited_migration=a.allow_audited_migration,
-               checkpoint_seconds=a.checkpoint_seconds)
+               checkpoint_seconds=a.checkpoint_seconds,
+               max_new_per_round=a.max_new_per_round)
     print(json.dumps(data, indent=2, sort_keys=True))
 
 

@@ -238,3 +238,35 @@ python -m unittest discover -s k11122 -v
 The original evidence archive is unchanged. These follow-up source changes,
 measurements and tests are retained in the PR. Classification remains UNKNOWN
 for both destination orbits.
+
+## Final provenance and interruption review
+
+The writer now hashes `exhaustive-verifier.log` when present, and the auditor
+requires that hash. Previously the checkpoint publisher copied this transcript
+but the manifest omitted it. A changed transcript or missing transcript hash
+now fails audit. This is an integrity check on recorded verifier output, not
+an independent proof of any status printed in that output. Legacy checkpoints
+with an unhashed transcript are deliberately rejected; the preserved benchmark
+checkpoints have no such transcript and continue to audit without modification.
+
+`--max-new-per-round` exposes the existing witness cap (default 96). The API
+rejects zero, negative, boolean and noninteger limits before creating output.
+Every new run records the cap in summary and manifest progress for reproducible
+scanner behavior; historical manifests remain accepted without this new field.
+
+The real-process SIGKILL test now covers three commit boundaries: before pointer
+replacement, immediately after replacement, and after fsync of the output
+directory. Each case independently audits the recovered generation and resumes
+into a separately audited output. The before case inherits zero fixture
+witnesses; both after cases inherit the one fully committed fixture witness.
+This remains a process-crash test, not physical power-loss simulation.
+
+Final validation: **54 tests passed**, on Python 3.12.14 with
+`python-sat==1.8.dev24` and `z3-solver==4.13.3.0` (`release-tests.log`).
+The original archived `new-3` final generation was recovered from the saved
+archive, whose SHA-256 was verified as
+`40edd049210f24255a59ac909317f82817b647e5192a6b331ab7bb677074a4ac`.
+The final auditor independently checked all 72,480 witnesses and 83,835 clauses
+and returned the same CNF hash as before (`release-saved-audit.json`).
+No new throughput claim or full-size SAT experiment accompanies these fixes.
+Both destination-orbit classifications remain UNKNOWN.

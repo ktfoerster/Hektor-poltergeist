@@ -188,7 +188,8 @@ def audit(directory):
         raise ValueError("branch")
     digests = meta.get("sha256")
     required = {"formula.cnf", "selectors.json", "masks.json", "witnesses.jsonl"}
-    for optional in ("masks.txt", "cpp-batches.jsonl", "last-policy.tsv"):
+    for optional in ("masks.txt", "cpp-batches.jsonl", "last-policy.tsv",
+                     "exhaustive-verifier.log"):
         if (root / optional).exists():
             required.add(optional)
     if not isinstance(digests, dict) or not required <= digests.keys():

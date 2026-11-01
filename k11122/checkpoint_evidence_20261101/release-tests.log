@@ -1,0 +1,75 @@
+test_checked_unsat_aggregation_fixture (test_adaptive_cnf.AdaptiveTests.test_checked_unsat_aggregation_fixture) ... {"node": "r0", "status": "CNF_UNSAT_RUP_VERIFIED", "attempts_this_run": 1}
+{"node": "r1", "status": "CNF_UNSAT_RUP_VERIFIED", "attempts_this_run": 2}
+{"node": "r2", "status": "CNF_UNSAT_RUP_VERIFIED", "attempts_this_run": 3}
+{"node": "r3", "status": "CNF_UNSAT_RUP_VERIFIED", "attempts_this_run": 4}
+ok
+test_driver_refines_unknown_leaves (test_adaptive_cnf.AdaptiveTests.test_driver_refines_unknown_leaves) ... {"node": "r00", "status": "SAT_FINITE_CNF", "attempts_this_run": 1}
+{"node": "r01", "status": "SAT_FINITE_CNF", "attempts_this_run": 2}
+ok
+test_probe_excludes_explicit_decisions (test_adaptive_cnf.AdaptiveTests.test_probe_excludes_explicit_decisions) ... ok
+test_real_sat_replay_and_no_parent_closure (test_adaptive_cnf.AdaptiveTests.test_real_sat_replay_and_no_parent_closure) ... {"node": "r0", "status": "SAT_FINITE_CNF", "attempts_this_run": 1}
+{"node": "r1", "status": "SAT_FINITE_CNF", "attempts_this_run": 2}
+{"node": "r2", "status": "SAT_FINITE_CNF", "attempts_this_run": 3}
+{"node": "r3", "status": "SAT_FINITE_CNF", "attempts_this_run": 4}
+ok
+test_recursive_coverage_resume_and_corruption (test_adaptive_cnf.AdaptiveTests.test_recursive_coverage_resume_and_corruption) ... {"node": "r1", "status": "SAT_FINITE_CNF", "attempts_this_run": 1}
+{"node": "r2", "status": "SAT_FINITE_CNF", "attempts_this_run": 1}
+ok
+test_wrong_child_proof_and_stale_parent (test_adaptive_cnf.AdaptiveTests.test_wrong_child_proof_and_stale_parent) ... ok
+test_32_policy_literal_vs_rank_and_clause_soundness (test_lasso.LassoSemanticTests.test_32_policy_literal_vs_rank_and_clause_soundness) ... ok
+test_bounded_live_solver_and_independent_bundle_audit (test_lasso.LassoSemanticTests.test_bounded_live_solver_and_independent_bundle_audit) ... ok
+test_corrupted_witnesses_rejected (test_lasso.LassoSemanticTests.test_corrupted_witnesses_rejected) ... ok
+test_disconnected_and_shared_injection (test_lasso.LassoSemanticTests.test_disconnected_and_shared_injection) ... ok
+test_rebuild_entire_cnf_corruption_and_resume (test_lasso.LassoSemanticTests.test_rebuild_entire_cnf_corruption_and_resume) ... ok
+test_selector_numbering_and_exact_branch_partition (test_lasso.LassoSemanticTests.test_selector_numbering_and_exact_branch_partition) ... ok
+test_successful_source_revisit_and_unreachable_cycle (test_lasso.LassoSemanticTests.test_successful_source_revisit_and_unreachable_cycle) ... ok
+test_corrupted_policy_and_masks_rejected (test_lasso_batch.CppBatchTests.test_corrupted_policy_and_masks_rejected) ... ok
+test_differential_full_scans_both_orbits_and_tiny_graphs (test_lasso_batch.CppBatchTests.test_differential_full_scans_both_orbits_and_tiny_graphs) ... ok
+test_duplicate_witness_dedup_and_prefix (test_lasso_batch.CppBatchTests.test_duplicate_witness_dedup_and_prefix) ... ok
+test_live_cpp_solver_and_audited_cross_version_resume (test_lasso_batch.CppBatchTests.test_live_cpp_solver_and_audited_cross_version_resume) ... ok
+test_audit_pins_generation_during_concurrent_publication (test_lasso_checkpoint.CheckpointTests.test_audit_pins_generation_during_concurrent_publication) ... ok
+test_committed_corruption_and_semantic_tampering_rejected (test_lasso_checkpoint.CheckpointTests.test_committed_corruption_and_semantic_tampering_rejected) ... ok
+test_failures_at_publication_boundaries_preserve_committed_generation (test_lasso_checkpoint.CheckpointTests.test_failures_at_publication_boundaries_preserve_committed_generation) ... ok
+test_invalid_interval (test_lasso_checkpoint.CheckpointTests.test_invalid_interval) ... ok
+test_lightweight_progress_does_not_change_recovery (test_lasso_checkpoint.CheckpointTests.test_lightweight_progress_does_not_change_recovery) ... ok
+test_missing_hashes_and_accounting_rejected (test_lasso_checkpoint.CheckpointTests.test_missing_hashes_and_accounting_rejected) ... ok
+test_publication_and_independent_continuation (test_lasso_checkpoint.CheckpointTests.test_publication_and_independent_continuation) ... ok
+test_resume_normalizes_unterminated_last_witness (test_lasso_checkpoint.CheckpointTests.test_resume_normalizes_unterminated_last_witness) ... ok
+test_sigkill_during_pointer_publication (test_lasso_checkpoint.CheckpointTests.test_sigkill_during_pointer_publication) ... ok
+test_streaming_audit_rejects_rehashed_cnf_edits (test_lasso_checkpoint.CheckpointTests.test_streaming_audit_rejects_rehashed_cnf_edits) ... ok
+test_verifier_log_integrity (test_lasso_checkpoint.CheckpointTests.test_verifier_log_integrity) ... ok
+test_witness_cap_validation_and_provenance (test_lasso_checkpoint.CheckpointTests.test_witness_cap_validation_and_provenance) ... ok
+test_corruption_and_mismatches_rejected (test_merge.MergeTests.test_corruption_and_mismatches_rejected) ... ok
+test_exact_union_and_no_branch_leak (test_merge.MergeTests.test_exact_union_and_no_branch_leak) ... ok
+test_export_matches_encoder (test_proof_cnf.ProofTests.test_export_matches_encoder) ... ok
+test_invalid_dimacs (test_proof_cnf.ProofTests.test_invalid_dimacs) ... ok
+test_unsat_proof_and_corruption (test_proof_cnf.ProofTests.test_unsat_proof_and_corruption) ... ok
+test_exhaustive_two_variables (test_rup_watch.WatchedTests.test_exhaustive_two_variables) ... ok
+test_pigeonhole_proof_both_engines (test_rup_watch.WatchedTests.test_pigeonhole_proof_both_engines) ... ok
+test_seeded_incremental_differential (test_rup_watch.WatchedTests.test_seeded_incremental_differential) ... ok
+test_backends_build_identical_cnf_and_models (test_sat_search.BooleanPrimitiveTests.test_backends_build_identical_cnf_and_models) ... ok
+test_exact_one_selector (test_sat_search.BooleanPrimitiveTests.test_exact_one_selector) ... ok
+test_guarded_comparator_boundaries (test_sat_search.BooleanPrimitiveTests.test_guarded_comparator_boundaries) ... ok
+test_persistent_worker_receives_new_clauses (test_sat_search.BooleanPrimitiveTests.test_persistent_worker_receives_new_clauses) ... ok
+test_phase_policy_is_validated_and_does_not_constrain (test_sat_search.BooleanPrimitiveTests.test_phase_policy_is_validated_and_does_not_constrain) ... ok
+test_all_triangle_bit_policies_against_smt_and_walks (test_sat_search.DifferentialTests.test_all_triangle_bit_policies_against_smt_and_walks) ... ok
+test_miner_agrees_with_unchanged_verifier_and_literal_walks (test_sat_search.DifferentialTests.test_miner_agrees_with_unchanged_verifier_and_literal_walks) ... ok
+test_partition_preserves_both_emitted_bits (test_sat_search.DifferentialTests.test_partition_preserves_both_emitted_bits) ... ok
+test_shared_injection_disconnected_and_both_orbits (test_sat_search.DifferentialTests.test_shared_injection_disconnected_and_both_orbits) ... ok
+test_transient_source_revisit_and_unreachable_loop (test_sat_search.DifferentialTests.test_transient_source_revisit_and_unreachable_loop) ... ok
+test_exhaustive_triangle_policies_against_literal_walks (test_search.SemanticTests.test_exhaustive_triangle_policies_against_literal_walks) ... ok
+test_partition_coverage_disjoint_and_resume (test_search.SemanticTests.test_partition_coverage_disjoint_and_resume) ... ok
+test_transient_source_revisit_and_unreachable_cycle (test_search.SemanticTests.test_transient_source_revisit_and_unreachable_cycle) ... ok
+test_common_source_and_no_arbitrary_arrival (test_search.Tests.test_common_source_and_no_arbitrary_arrival) ... ok
+test_encoding_against_all_two_vertex_policies (test_search.Tests.test_encoding_against_all_two_vertex_policies) ... ok
+test_small_complete_and_corruption (test_search.Tests.test_small_complete_and_corruption) ... ok
+test_coverage_models_and_corruption (test_split_cnf.SplitTests.test_coverage_models_and_corruption) ... ok
+
+----------------------------------------------------------------------
+Ran 54 tests in 20.849s
+
+OK
+{"masks": 64, "obligations": 144, "failures": 8, "max_successful_hops": 3, "counterexamples": [28, 44, 50, 60], "candidate_sha256": "59a7daa3b77090128600ebca5dfb68a81708a5e0ed0cfecc0d81f0fa977bc643", "status": "FINITE_SAT_GLOBALLY_INVALID"}
+{"masks": 64, "obligations": 144, "failures": 8, "max_successful_hops": 3, "counterexamples": [28, 44, 50, 60], "candidate_sha256": "14eac81562ec982efc5dc52f27933e815c8b1f8dbd9325ab1e091a0280549c9d", "status": "FINITE_SAT_GLOBALLY_INVALID"}
+{"masks": 64, "obligations": 144, "failures": 6, "max_successful_hops": 4, "counterexamples": [28, 44, 50, 60], "candidate_sha256": "7ab56523052ace7e8e8d06c7aa5aa5ada47366d9e86a78a68b80b0c75da77c2f", "status": "FINITE_SAT_GLOBALLY_INVALID"}
+{"masks": 64, "obligations": 144, "failures": 6, "max_successful_hops": 4, "counterexamples": [28, 44, 50, 60], "candidate_sha256": "68c0fa3bbeafac8b0f47f18b509c13d940e8c3be254d373d354ac3034db36515", "status": "FINITE_SAT_GLOBALLY_INVALID"}
