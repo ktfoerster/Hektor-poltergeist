@@ -21,9 +21,11 @@ def main():
     p.add_argument('--binary', type=Path, required=True)
     p.add_argument('--seconds', type=float, default=15)
     p.add_argument('--interval', type=float)
+    p.add_argument('--module', choices=('lasso_search', 'lasso_generation_search'),
+                   default='lasso_search')
     a = p.parse_args()
     sys.path.insert(0, str(a.source.resolve() / 'k11122'))
-    search = importlib.import_module('lasso_search')
+    search = importlib.import_module(a.module)
     from lasso_witness import sha
     import pysat
     from merge_checkpoints import merge, LATEST

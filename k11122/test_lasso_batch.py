@@ -155,5 +155,55 @@ class CppBatchTests(unittest.TestCase):
 
 
 
+    def test_incremental_checkpoint_recovery_and_full_mode(self):
+        try:
+            from lasso_search import run
+            from lasso_witness import audit
+            from lasso_journal import check_committed
+        except ModuleNotFoundError:
+            raise unittest.SkipTest('pinned SAT backend unavailable')
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            journal = root / 'journal'
+            first = run(journal, 4, 3, -1, [41], 1.5,
+                        walker='cpp', batch_binary=self.binary,
+                        checkpoint_mode='journal')
+            self.assertEqual(audit(journal)['status'], 'CHECKED')
+            check = check_committed(journal)
+            self.assertEqual(check['verified_witnesses'],
+                             first['new_witnesses'] + first['inherited_witnesses'])
+            crashed = root / 'interrupted'
+            shutil.copytree(journal, crashed)
+            (crashed / 'manifest.json').unlink()
+            (crashed / 'formula.cnf').unlink()
+            # Simulate a crash after the last committed pointer. Ignore
+            # the uncommitted suffix while recovering to a NEW output.
+            with (crashed / 'clauses.body').open('ab') as f:
+                f.write(b'42 -42 0\n')
+            with (crashed / 'witnesses.jsonl').open('ab') as f:
+                f.write(b'{torn witness')
+            self.assertEqual(check_committed(crashed)['uncommitted_body_bytes'], 9)
+            recovered = root / 'recovered'
+            run(recovered, 4, 3, -1, [41], 1.5,
+                walker='cpp', batch_binary=self.binary,
+                resume=crashed, checkpoint_mode='journal')
+            self.assertEqual(audit(recovered)['status'], 'CHECKED')
+            metadata = json.loads((recovered / 'manifest.json').read_text())
+            self.assertEqual(metadata['imported']['resumed_from']['checkpoint_kind'],
+                             'journal-prefix')
+            self.assertGreater(metadata['progress']['recovered_uncommitted_witness_bytes'], 0)
+            full = root / 'full'
+            full_result = run(full, 4, 3, -1, [41], 1.5,
+                              walker='cpp', batch_binary=self.binary,
+                              checkpoint_mode='full')
+            self.assertEqual(full_result['checkpoint_mode'], 'full')
+            self.assertEqual(audit(full)['status'], 'CHECKED')
+            self.assertEqual(json.loads((full / 'masks.json').read_text()),
+                             json.loads((journal / 'masks.json').read_text()))
+            self.assertEqual(json.loads((full / 'selectors.json').read_text()),
+                             json.loads((journal / 'selectors.json').read_text()))
+
+
+
 if __name__ == '__main__':
     unittest.main()

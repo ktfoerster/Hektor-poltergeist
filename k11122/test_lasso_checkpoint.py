@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from lasso_checkpoint import Checkpoints, checkpoint_root
-from lasso_search import CapturedPolicy, run, snapshot
+from lasso_generation_search import CapturedPolicy, run, snapshot
 from lasso_witness import audit, checked_clause, selector_rows, sha, trace
 from test_lasso import tiny_policies
 
@@ -78,7 +78,7 @@ class CheckpointTests(unittest.TestCase):
                 if phase == 'copy':
                     injection = patch('lasso_checkpoint.shutil.copyfile', side_effect=OSError('copy'))
                 elif phase == 'export':
-                    injection = patch('lasso_search.shutil.copyfileobj', side_effect=OSError('CNF'))
+                    injection = patch('lasso_generation_search.shutil.copyfileobj', side_effect=OSError('CNF'))
                 elif phase == 'file_sync':
                     injection = patch('lasso_checkpoint.os.fsync', side_effect=OSError('sync'))
                 elif phase == 'rename':
@@ -290,6 +290,26 @@ save(1)
             manifest = json.loads((out/'manifest.json').read_text())
             self.assertEqual(manifest['progress']['max_new_per_round'], 1)
             self.assertEqual(audit(out)['status'], 'CHECKED')
+
+    def test_public_dispatch_and_journal_default(self):
+        from lasso_search import run as public_run
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            default = public_run(root/'default', 4, 3, -1, [41], 1)
+            self.assertEqual(default['checkpoint_mode'], 'journal')
+            self.assertTrue((root/'default/journal.json').is_file())
+            generated = public_run(root/'generations', 4, 3, -1, [41], 1,
+                                   checkpoint_mode='generations', checkpoint_seconds=0)
+            self.assertEqual(generated['checkpoint_mode'], 'generations')
+            self.assertTrue((root/'generations/current').is_symlink())
+            self.assertEqual(audit(root/'generations')['status'], 'CHECKED')
+            # Cross-engine imports are explicit source migrations, re-audited.
+            for source, destination, mode in [('default', 'to-generations', 'generations'),
+                                               ('generations', 'to-journal', 'journal')]:
+                result = public_run(root/destination, 4, 3, -1, [41], 1,
+                                    resume=root/source, checkpoint_mode=mode,
+                                    allow_audited_migration=True)
+                self.assertEqual(audit(root/destination)['status'], 'CHECKED')
 
     def test_invalid_interval(self):
         with tempfile.TemporaryDirectory() as temp:

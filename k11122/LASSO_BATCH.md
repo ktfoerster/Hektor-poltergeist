@@ -96,7 +96,9 @@ independently verified proofs or fully resilient policies exist.
 
 See [CHECKPOINT_RESULTS_20261101.md](CHECKPOINT_RESULTS_20261101.md) for the
 bounded original/improved comparison, timing definitions, crash tests and
-recovery contract. Complete snapshots now default to five-second intervals,
+recovery contract. With `--checkpoint-mode generations`, complete snapshots default to five-second intervals,
 with lightweight advisory progress between them; `--checkpoint-seconds 0`
 publishes each round. Audit/resume pin the atomically published `current`
 generation. Working/staging files and progress records never authorize resume.
+
+The public default is the newer incremental journal; see [CHECKPOINT_JOURNAL.md](CHECKPOINT_JOURNAL.md). The final paired measurements and integration scope are in [FINAL_CHECKPOINT_BENCHMARK_20261101.md](FINAL_CHECKPOINT_BENCHMARK_20261101.md).
