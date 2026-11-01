@@ -1,0 +1,58 @@
+{
+  "stats": {
+    "status": "UNKNOWN",
+    "raw_models": 462,
+    "finite_suite_candidates": 0,
+    "new_witnesses": 44352,
+    "inherited_witnesses": 0,
+    "solver_seconds": 2.8382748369913315,
+    "replay_seconds": 4.83844975104148,
+    "construction_seconds": 0.03418967701145448,
+    "budget_seconds": 15.0,
+    "completed_scans": 0,
+    "interrupted_scans": 462,
+    "walker": "cpp",
+    "batch_invocations": 462,
+    "batch_cpp_seconds": 2.3420758079591906,
+    "batch_python_check_seconds": 1.2004676880023908,
+    "batch_binary_sha256": "8b48ea2248f9cfb46effc5736d0a3f5efb731b3c2e3c9655a0f941e461d55710",
+    "elapsed_seconds": 15.017624119005632,
+    "peak_rss_kib": 49448
+  },
+  "measured": {
+    "snapshot_seconds": 5.593248860925087,
+    "snapshot_hash_seconds": 4.8074829295801464,
+    "policy_seconds": 1.6997382610134082,
+    "audit_seconds": 1.8429019870090997,
+    "snapshots": 464
+  },
+  "total_seconds": 16.91721225999936,
+  "source_commit": "02f7acbfbab6bdbd71cfeb671c2c61aa621c03ff",
+  "source_sha256": {
+    "lasso_search.py": "786913dffc3cf2cd297ecf923f4456345c5ff44b0f08b6ef21d39a88bd199a18",
+    "lasso_witness.py": "2525c36cbcc75ead4ec6869fa71fa21aa6ab99a868a73d45ca3f575329db6d27",
+    "lasso_batch.cpp": "92aeb9ce8ea4ee143142a8aa6a00ec200d3a2d6dd3aa26feacbd77f244c5753e",
+    "sat_search.py": "e241e118ffc6143b988e245fa8a3145bbe2739c008fd43be381e02fe5655feb7",
+    "merge_checkpoints.py": "33333b8bc93814a034f2a222314ec2f638828d22cc98b91afc61774fb03d208c",
+    "verify.cpp": "cb2f54d14187bd93efd211759445fed6e9b96624b784712c2a7a884c16fa4caf",
+    "proof_cnf.py": "2e3da11ddf68c8a42e705f24ff70d701ae81855bf8d9530ef79cd64b117770fa"
+  },
+  "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.39",
+  "pysat": "1.8.dev24",
+  "masks": 2701,
+  "seed": 20261101,
+  "target": 0,
+  "branch": 0,
+  "masks_sha256": "3a2af67a602ea6cace917d4fa69b39182e646accef73484bcb458df316a14187",
+  "binary_sha256": "8b48ea2248f9cfb46effc5736d0a3f5efb731b3c2e3c9655a0f941e461d55710",
+  "formula_sha256": "c3866cef9e6f3f2c70366128fb03e75e4d5bff66766eed4bb49f0c1c4bc78f20",
+  "witnesses_sha256": "dd0a61d31f97b200f78574449ac6d58dd2011255bd153523ad6abbe59b097069",
+  "audit": {
+    "status": "CHECKED",
+    "clauses": 55707,
+    "witnesses": 44352,
+    "variables": 4736,
+    "cnf_sha256": "c3866cef9e6f3f2c70366128fb03e75e4d5bff66766eed4bb49f0c1c4bc78f20"
+  }
+}

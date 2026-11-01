@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import time
 
+from lasso_checkpoint import checkpoint_root
 from merge_checkpoints import LATEST, merge
 from sat_search import BooleanEncoding, partition, write_policy
 from lasso_witness import (sha, selector_rows, trace, checked_clause, audit)
@@ -61,7 +62,7 @@ def checked_policy(payload, reference_rows):
 
 
 def source_hashes():
-    names = ("lasso_search.py", "lasso_witness.py", "lasso_batch.cpp", "lasso_journal.py", "sat_search.py",
+    names = ("lasso_search.py", "lasso_witness.py", "lasso_batch.cpp", "lasso_journal.py", "lasso_checkpoint.py", "sat_search.py",
              "merge_checkpoints.py", "verify.cpp", "proof_cnf.py")
     return {name: sha(Path(__file__).with_name(name)) for name in names}
 
@@ -88,7 +89,8 @@ def snapshot(out, enc, masks, target, branch, witnesses, stats, imported):
                 progress=stats,
                 commit=os.environ.get("GITHUB_SHA"))
     names = ["formula.cnf", "selectors.json", "masks.json", "witnesses.jsonl"]
-    for optional in ("masks.txt", "cpp-batches.jsonl", "last-policy.tsv"):
+    for optional in ("masks.txt", "cpp-batches.jsonl", "last-policy.tsv",
+                     "exhaustive-verifier.log"):
         if (out / optional).is_file():
             names.append(optional)
     meta["sha256"] = {name: sha(out / name) for name in names}
@@ -120,7 +122,17 @@ def independent_replay(out, policy, n, target, verifier):
 def run(output, n, target, branch, masks, seconds, verifier=None,
         resume=None, seed=20261101, backend="cadical195",
         imported=None, max_new_per_round=96, walker="python", batch_binary=None,
-        allow_audited_migration=False, checkpoint_mode="journal"):
+        allow_audited_migration=False, checkpoint_mode="journal", checkpoint_seconds=5.0):
+    if type(max_new_per_round) is not int or max_new_per_round < 1:
+        raise ValueError("max_new_per_round must be a positive integer")
+    if checkpoint_mode == "generations":
+        from lasso_generation_search import run as generation_run
+        return generation_run(output, n, target, branch, masks, seconds,
+                              verifier=verifier, resume=resume, seed=seed, backend=backend,
+                              imported=imported, max_new_per_round=max_new_per_round,
+                              walker=walker, batch_binary=batch_binary,
+                              allow_audited_migration=allow_audited_migration,
+                              checkpoint_seconds=checkpoint_seconds)
     if not 0.0 < seconds <= 180:
         raise ValueError("bounded run must be 0..180 seconds")
     if (not isinstance(masks, list) or not masks or
@@ -157,6 +169,7 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                  new_witnesses=0, inherited_witnesses=0,
                  solver_seconds=0.0, replay_seconds=0.0,
                  construction_seconds=base_seconds, budget_seconds=seconds,
+                 max_new_per_round=max_new_per_round,
                  completed_scans=0, interrupted_scans=0, walker=walker,
                  batch_invocations=0, batch_cpp_seconds=0.0,
                  batch_python_check_seconds=0.0,
@@ -186,7 +199,7 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
     try:
         with (output / "witnesses.jsonl").open("wb") as records:
             if resume is not None:
-                previous = Path(resume)
+                previous = checkpoint_root(resume)
                 if (previous / "manifest.json").is_file():
                     audit(previous)
                     old = json.loads((previous / "manifest.json").read_text())
@@ -395,8 +408,11 @@ def main():
     p.add_argument("--verify", type=Path)
     p.add_argument("--walker", choices=("python", "cpp"), default="python")
     p.add_argument("--batch-binary", type=Path, help="compiled C++ scanner (only for --walker cpp)")
-    p.add_argument("--checkpoint-mode", choices=("full", "journal"), default="journal",
+    p.add_argument("--checkpoint-mode", choices=("full", "journal", "generations"), default="journal",
                    help="full exports every round; journal commits fsynced prefixes")
+    p.add_argument("--checkpoint-seconds", type=float, default=5.0,
+                   help="complete snapshot interval in generations mode")
+    p.add_argument("--max-new-per-round", type=int, default=96)
     p.add_argument("--allow-audited-migration", action="store_true",
                    help="explicitly recheck old complete witness CNF despite source version change")
     p.add_argument("--seed", type=int, default=20261101)
@@ -417,7 +433,9 @@ def main():
                    "source_root": str(a.root)},
                walker=a.walker, batch_binary=a.batch_binary,
                allow_audited_migration=a.allow_audited_migration,
-               checkpoint_mode=a.checkpoint_mode)
+               checkpoint_mode=a.checkpoint_mode,
+               checkpoint_seconds=a.checkpoint_seconds,
+               max_new_per_round=a.max_new_per_round)
     print(json.dumps(data, indent=2, sort_keys=True))
 
 

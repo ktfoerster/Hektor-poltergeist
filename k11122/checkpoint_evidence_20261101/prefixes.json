@@ -1,0 +1,17 @@
+[
+  {
+    "pair": 1,
+    "identical_witness_prefix": 43488,
+    "sha256": "e43d772326ac9d629faa3fb946c69182213ec0c0d177dbae70a4420423ffe3b8"
+  },
+  {
+    "pair": 2,
+    "identical_witness_prefix": 37152,
+    "sha256": "d31f072beede19760936870990f29b0fd9a6318424004c3047e7675905fd78b4"
+  },
+  {
+    "pair": 3,
+    "identical_witness_prefix": 44352,
+    "sha256": "dd0a61d31f97b200f78574449ac6d58dd2011255bd153523ad6abbe59b097069"
+  }
+]

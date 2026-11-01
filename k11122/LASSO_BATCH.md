@@ -91,3 +91,14 @@ source, test output, CNF/witness records and hashes.
 
 The classification remains **UNKNOWN for both destination orbits** until
 independently verified proofs or fully resilient policies exist.
+
+## Checkpoint overhead measurements and recovery update
+
+See [CHECKPOINT_RESULTS_20261101.md](CHECKPOINT_RESULTS_20261101.md) for the
+bounded original/improved comparison, timing definitions, crash tests and
+recovery contract. With `--checkpoint-mode generations`, complete snapshots default to five-second intervals,
+with lightweight advisory progress between them; `--checkpoint-seconds 0`
+publishes each round. Audit/resume pin the atomically published `current`
+generation. Working/staging files and progress records never authorize resume.
+
+The public default is the newer incremental journal; see [CHECKPOINT_JOURNAL.md](CHECKPOINT_JOURNAL.md). The final paired measurements and integration scope are in [FINAL_CHECKPOINT_BENCHMARK_20261101.md](FINAL_CHECKPOINT_BENCHMARK_20261101.md).

@@ -1,0 +1,7 @@
+{
+  "status": "CHECKED",
+  "clauses": 83835,
+  "witnesses": 72480,
+  "variables": 4736,
+  "cnf_sha256": "cd6290eba07b19d798fe0854c507a7d62a62f0dc4a8c0651b1b574642d86b716"
+}
