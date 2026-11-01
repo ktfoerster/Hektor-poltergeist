@@ -1,0 +1,54 @@
+name: K11122 rank-free lasso pilot
+on:
+  workflow_dispatch:
+  push:
+    branches: ['research/k11122-lasso-20261101']
+    paths:
+      - 'k11122/lasso_*.py'
+      - 'k11122/test_lasso.py'
+      - '.github/workflows/k11122-lasso.yml'
+permissions:
+  contents: read
+concurrency:
+  group: k11122-lasso-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  pilot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install python-sat==1.8.dev24 z3-solver==4.13.3.0
+      - name: Test all old and new semantic checks
+        run: |
+          mkdir -p evidence
+          python -m pip freeze > evidence/dependencies.txt
+          python -m unittest discover -s k11122 -p 'test_*.py' -v > evidence/tests.log 2>&1 || { cat evidence/tests.log; exit 1; }
+          tail -n 8 evidence/tests.log
+      - name: Rebuild unchanged independent verifier
+        run: |
+          g++ -O3 -std=c++17 k11122/verify.cpp -o evidence/verify
+          sha256sum evidence/verify k11122/verify.cpp > evidence/verifier-hashes.txt
+      - name: Compare same frozen merged target-0 branch-0 constraints
+        run: |
+          python k11122/merge_checkpoints.py --target 0 --output evidence/frozen-t0.json
+          python -c "import json; a=json.load(open('evidence/frozen-t0.json')); assert len(a['masks']) == 2701"
+          /usr/bin/time -v -o evidence/rank-build-time.txt python k11122/proof_cnf.py export --target 0 --branch 0 --checkpoint evidence/frozen-t0.json --output evidence/rank > evidence/rank-build-stdout.txt
+          /usr/bin/time -v -o evidence/lasso-time.txt python k11122/lasso_search.py run --target 0 --branch 0 --seconds 75 --verify "$PWD/evidence/verify" --output evidence/lasso > evidence/lasso-stdout.txt
+          python k11122/lasso_search.py audit --output evidence/lasso > evidence/lasso-recheck.json
+          python -c "import json; a=json.load(open('evidence/lasso/manifest.json')); b=json.load(open('evidence/rank/export.json')); assert a['masks'] == len(b['masks']) == 2701; assert a['target'] == b['target'] == 0; assert a['branch'] == b['partition']['branch'] == 0"
+      - name: Preserve complete source, evidence, hashes
+        if: always()
+        run: |
+          cp k11122/lasso_*.py k11122/test_lasso.py evidence/ || true
+          echo "$GITHUB_SHA" > evidence/commit.txt
+          find evidence -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k11122-rankfree-${{ github.run_id }}
+          path: evidence/
+          retention-days: 30
