@@ -1,0 +1,115 @@
+name: K11122 accelerated witness batch comparison
+on:
+  workflow_dispatch:
+  push:
+    branches: ['research/k11122-cpp-20261101']
+    paths:
+      - 'k11122/lasso_batch.cpp'
+      - 'k11122/lasso_search.py'
+      - 'k11122/test_lasso_batch.py'
+      - '.github/workflows/k11122-batch.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: k11122-cpp-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  controlled:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test all old and new semantics
+        run: |
+          mkdir -p evidence
+          python -m pip install python-sat==1.8.dev24 z3-solver==4.13.3.0
+          python -m pip freeze > evidence/dependencies.txt
+          python -m unittest discover -s k11122 -p 'test_*.py' -v > evidence/tests.log 2>&1 || { cat evidence/tests.log; exit 1; }
+          tail -n 8 evidence/tests.log
+      - name: Independently build batch miner and unchanged full verifier
+        run: |
+          g++ -std=c++17 -O3 -Wall -Wextra -Werror k11122/lasso_batch.cpp -o evidence/lasso_batch
+          g++ -std=c++17 -O3 k11122/verify.cpp -o evidence/verify
+          sha256sum k11122/lasso_batch.cpp k11122/verify.cpp evidence/lasso_batch evidence/verify > evidence/tool-hashes.txt
+      - name: Establish identical strict merged benchmark inputs
+        run: |
+          python k11122/merge_checkpoints.py --target 0 --output evidence/frozen-t0.json
+          python k11122/merge_checkpoints.py --target 3 --output evidence/frozen-t3.json
+          python -c 'import json; assert len(json.load(open("evidence/frozen-t0.json"))["masks"])==2701; assert len(json.load(open("evidence/frozen-t3.json"))["masks"])==2181'
+      - name: Cold Python 45-second baseline, target 0 branch 0
+        run: |
+          /usr/bin/time -v -o evidence/time-python.txt python k11122/lasso_search.py run --target 0 --branch 0 --seconds 45 --walker python --verify "$PWD/evidence/verify" --output evidence/python-cold > evidence/python-cold-output.json
+          python k11122/lasso_search.py audit --output evidence/python-cold > evidence/python-audit.json
+      - name: Cold C++ 45-second comparison, same target branch masks and seed
+        run: |
+          /usr/bin/time -v -o evidence/time-cpp.txt python k11122/lasso_search.py run --target 0 --branch 0 --seconds 45 --walker cpp --batch-binary "$PWD/evidence/lasso_batch" --verify "$PWD/evidence/verify" --output evidence/cpp-cold > evidence/cpp-cold-output.json
+          python k11122/lasso_search.py audit --output evidence/cpp-cold > evidence/cpp-audit.json
+      - uses: actions/download-artifact@v4
+        id: previous
+        continue-on-error: true
+        with:
+          name: k11122-rankfree-41293198280
+          run-id: 41293198280
+          github-token: ${{ github.token }}
+          path: evidence/previous
+      - name: Audited resume from 61,248 previously learned clauses
+        if: steps.previous.outcome == 'success'
+        run: |
+          python k11122/lasso_search.py audit --output evidence/previous/lasso > evidence/previous-audit.json
+          python -c 'import json; x=json.load(open("evidence/previous/lasso/manifest.json")); assert x["target"]==0 and x["branch"]==0 and x["witnesses"]==61248 and x["sha256"]["formula.cnf"]=="34792b5e850afc31b586604756a2ce3d4e60674b9b53eafff8e00eafb6cf1ba6"'
+          /usr/bin/time -v -o evidence/time-cpp-resume.txt python k11122/lasso_search.py run --target 0 --branch 0 --seconds 45 --walker cpp --batch-binary "$PWD/evidence/lasso_batch" --verify "$PWD/evidence/verify" --resume evidence/previous/lasso --allow-audited-migration --output evidence/cpp-resume > evidence/cpp-resume-output.json
+          python k11122/lasso_search.py audit --output evidence/cpp-resume > evidence/cpp-resume-audit.json
+      - name: Separate target 3 branch 0, bounded C++ pilot
+        run: |
+          /usr/bin/time -v -o evidence/time-cpp-t3.txt python k11122/lasso_search.py run --target 3 --branch 0 --seconds 45 --walker cpp --batch-binary "$PWD/evidence/lasso_batch" --verify "$PWD/evidence/verify" --output evidence/cpp-t3 > evidence/cpp-t3-output.json
+          python k11122/lasso_search.py audit --output evidence/cpp-t3 > evidence/cpp-t3-audit.json
+      - name: Exact comparator, reproducibility and closure
+        run: |
+          python - <<'PY'
+          import json,pathlib
+          e=pathlib.Path('evidence')
+          reports={}
+          for name in ('python-cold','cpp-cold','cpp-resume','cpp-t3'):
+              f=e/name/'summary.json'
+              if f.exists():
+                  s=json.loads(f.read_text()); m=json.loads((e/name/'manifest.json').read_text())
+                  reports[name]={'status':s['status'],'raw_models':s['raw_models'],
+                      'new_witnesses':s['new_witnesses'],'inherited_witnesses':s['inherited_witnesses'],
+                      'finite_suite_candidates':s['finite_suite_candidates'],
+                      'solver_seconds':s['solver_seconds'],'walk_seconds':s['replay_seconds'],
+                      'cpp_process_seconds':s['batch_cpp_seconds'],
+                      'python_clause_check_seconds':s['batch_python_check_seconds'],
+                      'elapsed_seconds':s['elapsed_seconds'],
+                      'variables':m['variables'],'clauses':m['clauses'],
+                      'formula_sha256':m['sha256']['formula.cnf'],
+                      'audited':json.loads((e/name/'audit.json').read_text())['status']}
+          assert len(reports)>=3
+          a=json.loads((e/'python-cold/masks.json').read_text())
+          b=json.loads((e/'cpp-cold/masks.json').read_text())
+          assert a==b and len(a)==2701
+          m0=json.loads((e/'python-cold/manifest.json').read_text())
+          m1=json.loads((e/'cpp-cold/manifest.json').read_text())
+          assert m0['target']==m1['target']==0 and m0['branch']==m1['branch']==0
+          (e/'comparison.json').write_text(json.dumps(reports,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(reports,indent=2))
+          PY
+      - name: Preserve complete independently audited research evidence
+        if: always()
+        run: |
+          mkdir -p evidence/source
+          cp k11122/lasso_*.py k11122/lasso_batch.cpp k11122/test_lasso_batch.py k11122/LASSO_BATCH.md evidence/source/
+          echo "$GITHUB_SHA" > evidence/commit.txt
+          # The previous 26-MB artifact already has its own GitHub URI and SHA:
+          # do not duplicate it in this artifact, only retain its audited hash.
+          rm -rf evidence/previous
+          find evidence -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k11122-cpp-batch-${{ github.run_id }}
+          path: evidence/
+          retention-days: 30

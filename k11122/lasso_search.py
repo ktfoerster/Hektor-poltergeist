@@ -60,7 +60,7 @@ def checked_policy(payload, reference_rows):
 
 
 def source_hashes():
-    names = ("lasso_search.py", "lasso_witness.py", "sat_search.py",
+    names = ("lasso_search.py", "lasso_witness.py", "lasso_batch.cpp", "sat_search.py",
              "merge_checkpoints.py", "verify.cpp", "proof_cnf.py")
     return {name: sha(Path(__file__).with_name(name)) for name in names}
 
@@ -86,7 +86,10 @@ def snapshot(out, enc, masks, target, branch, witnesses, stats, imported):
                 scope="finite residual suite and one physical-first-hop branch",
                 progress=stats,
                 commit=os.environ.get("GITHUB_SHA"))
-    names = ("formula.cnf", "selectors.json", "masks.json", "witnesses.jsonl")
+    names = ["formula.cnf", "selectors.json", "masks.json", "witnesses.jsonl"]
+    for optional in ("masks.txt", "cpp-batches.jsonl", "last-policy.tsv"):
+        if (out / optional).is_file():
+            names.append(optional)
     meta["sha256"] = {name: sha(out / name) for name in names}
     temporary = out / "manifest.json.tmp"
     temporary.write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n")
@@ -115,13 +118,20 @@ def independent_replay(out, policy, n, target, verifier):
 
 def run(output, n, target, branch, masks, seconds, verifier=None,
         resume=None, seed=20261101, backend="cadical195",
-        imported=None, max_new_per_round=96):
+        imported=None, max_new_per_round=96, walker="python", batch_binary=None,
+        allow_audited_migration=False):
     if not 0.0 < seconds <= 180:
         raise ValueError("bounded run must be 0..180 seconds")
     if (not isinstance(masks, list) or not masks or
             masks != sorted(set(masks)) or
             any(type(x) is not int for x in masks)):
         raise ValueError("require nonempty strictly sorted frozen masks")
+    if walker not in ("python", "cpp"):
+        raise ValueError("walker must be python or cpp")
+    if walker == "cpp":
+        if batch_binary is None or not Path(batch_binary).is_file():
+            raise ValueError("cpp walker requires a compiled --batch-binary")
+        batch_binary = Path(batch_binary).resolve()
     independent = selector_rows(n, target)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
@@ -135,15 +145,22 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
     (output / "selectors.json").write_text(json.dumps(
         [[*key, choices] for key, choices in independent.items()]) + "\n")
     (output / "masks.json").write_text(json.dumps(masks) + "\n")
+    if walker == "cpp":
+        (output / "masks.txt").write_text("".join(f"{mask}\n" for mask in masks))
     base_seconds = time.monotonic() - construction
     stats = dict(status="UNKNOWN", raw_models=0, finite_suite_candidates=0,
                  new_witnesses=0, inherited_witnesses=0,
                  solver_seconds=0.0, replay_seconds=0.0,
                  construction_seconds=base_seconds, budget_seconds=seconds,
-                 completed_scans=0, interrupted_scans=0)
+                 completed_scans=0, interrupted_scans=0, walker=walker,
+                 batch_invocations=0, batch_cpp_seconds=0.0,
+                 batch_python_check_seconds=0.0,
+                 batch_binary_sha256=sha(batch_binary) if walker == "cpp" else None)
     learned = set()
     if imported is None:
         imported = {}
+    else:
+        imported = dict(imported)
     witness_count = 0
     try:
         with (output / "witnesses.jsonl").open("w") as records:
@@ -155,8 +172,16 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                     raise ValueError("resume model/branch mismatch")
                 if json.loads((previous / "masks.json").read_text()) != masks:
                     raise ValueError("resume frozen suite mismatch")
-                if old["source_sha256"] != source_hashes():
-                    raise ValueError("resume source dependency mismatch")
+                migrated = old["source_sha256"] != source_hashes()
+                if migrated and not allow_audited_migration:
+                    raise ValueError("resume source mismatch; use explicit audited migration")
+                imported["resumed_from"] = {
+                    "manifest_sha256": sha(previous / "manifest.json"),
+                    "formula_sha256": sha(previous / "formula.cnf"),
+                    "source_sha256": old["source_sha256"],
+                    "migration": "independently rechecked full CNF and all witnesses"
+                                 if migrated else "same dependency hashes",
+                }
                 for line in (previous / "witnesses.jsonl").read_text().splitlines():
                     item = json.loads(line)
                     clause = checked_clause(item["witness"], n, target, independent)
@@ -195,29 +220,96 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                 round_new = set()
                 full_scan = True
                 before = time.monotonic()
-                for mask in masks:
+                batch_witnesses = None
+                if walker == "cpp":
+                    remaining = seconds - (time.monotonic() - started)
+                    if remaining <= 0:
+                        full_scan = False
+                        stats["interrupted_scans"] += 1
+                        break
+                    cpp_started = time.monotonic()
+                    stats["batch_invocations"] += 1
+                    try:
+                        process = subprocess.run(
+                            [str(batch_binary), str((output / "last-policy.tsv").resolve()),
+                             str((output / "masks.txt").resolve()), str(max_new_per_round)],
+                            capture_output=True, text=True, check=True,
+                            timeout=max(0.01, min(15.0, remaining)))
+                    except subprocess.TimeoutExpired:
+                        full_scan = False
+                        stats["interrupted_scans"] += 1
+                        break
+                    finally:
+                        stats["batch_cpp_seconds"] += time.monotonic() - cpp_started
+                    messages = [json.loads(line) for line in process.stdout.splitlines()]
+                    if not messages or messages[-1].get("type") != "summary":
+                        raise RuntimeError("missing C++ scan summary")
+                    report = messages[-1]
+                    batch_witnesses = []
+                    if (report.get("schema") != 1 or report.get("n") != n or
+                            report.get("target") != target or
+                            report.get("total_masks") != len(masks) or
+                            report.get("witnesses") != len(messages) - 1 or
+                            report.get("scanned_masks", -1) > len(masks) or
+                            type(report.get("scan_complete")) is not bool):
+                        raise RuntimeError("invalid C++ scan accounting")
+                    for item in messages[:-1]:
+                        if item.get("type") != "witness" or set(item) != {"type", "witness"}:
+                            raise RuntimeError("invalid C++ scan record")
+                        batch_witnesses.append(item["witness"])
+                    # Preserve exact per-model scan statistics, without
+                    # treating the untrusted scanner's success as proof.
+                    with (output / "cpp-batches.jsonl").open("a") as cpp_logs:
+                        cpp_logs.write(json.dumps({
+                            "iteration": iteration,
+                            "policy_sha256": sha(output / "last-policy.tsv"),
+                            "report": report}, sort_keys=True) + "\n")
+                    full_scan = report["scan_complete"]
+                    if not batch_witnesses and full_scan:
+                        # Verify zero failures from scratch with the separate
+                        # Python implementation before accepting finite-suite SAT.
+                        for mask in masks:
+                            if time.monotonic() - started >= seconds:
+                                full_scan = False
+                                break
+                            for source in range(n):
+                                if trace(policy, n, target, mask, source) is not None:
+                                    raise RuntimeError("C++ missed a reachable failure")
+                if walker == "python":
+                    def python_witnesses():
+                        nonlocal full_scan
+                        for mask in masks:
+                            if time.monotonic() - started >= seconds:
+                                full_scan = False
+                                return
+                            for source in range(n):
+                                witness = trace(policy, n, target, mask, source)
+                                if witness is not None:
+                                    yield witness
+                                    break  # one witness per mask
+                    iterable = python_witnesses()
+                else:
+                    iterable = batch_witnesses
+                for witness in iterable:
                     if time.monotonic() - started >= seconds:
                         full_scan = False
                         break
-                    for source in range(n):
-                        witness = trace(policy, n, target, mask, source)
-                        if witness is None:
+                    validation_started = time.monotonic()
+                    clause = checked_clause(witness, n, target, independent)
+                    stats["batch_python_check_seconds"] += time.monotonic() - validation_started
+                    if tuple(clause) in learned:
+                        if tuple(clause) in round_new:
                             continue
-                        clause = checked_clause(witness, n, target, independent)
-                        if tuple(clause) in learned:
-                            if tuple(clause) in round_new:
-                                continue  # same necessary witness across multiple residuals
-                            raise RuntimeError("SAT assignment violates an existing clause")
-                        learned.add(tuple(clause))
-                        round_new.add(tuple(clause))
-                        enc.add_clause(clause)
-                        records.write(json.dumps(
-                            {"witness": witness, "clause": clause},
-                            sort_keys=True, separators=(",", ":")) + "\n")
-                        witness_count += 1
-                        stats["new_witnesses"] += 1
-                        added += 1
-                        break  # one independent failure witness per residual
+                        raise RuntimeError("SAT assignment violates a previously learned clause")
+                    learned.add(tuple(clause))
+                    round_new.add(tuple(clause))
+                    enc.add_clause(clause)
+                    records.write(json.dumps(
+                        {"witness": witness, "clause": clause},
+                        sort_keys=True, separators=(",", ":")) + "\n")
+                    witness_count += 1
+                    stats["new_witnesses"] += 1
+                    added += 1
                     if added >= max_new_per_round:
                         full_scan = False
                         break
@@ -263,6 +355,10 @@ def main():
     p.add_argument("--seconds", type=float, default=60)
     p.add_argument("--resume", type=Path)
     p.add_argument("--verify", type=Path)
+    p.add_argument("--walker", choices=("python", "cpp"), default="python")
+    p.add_argument("--batch-binary", type=Path, help="compiled C++ scanner (only for --walker cpp)")
+    p.add_argument("--allow-audited-migration", action="store_true",
+                   help="explicitly recheck old complete witness CNF despite source version change")
     p.add_argument("--seed", type=int, default=20261101)
     p.add_argument("--backend", choices=("cadical195", "glucose42", "maplechrono"),
                    default="cadical195")
@@ -278,7 +374,9 @@ def main():
                backend=a.backend, imported={
                    "sources": union["sources"],
                    "intersection_count": union["intersection_count"],
-                   "source_root": str(a.root)})
+                   "source_root": str(a.root)},
+               walker=a.walker, batch_binary=a.batch_binary,
+               allow_audited_migration=a.allow_audited_migration)
     print(json.dumps(data, indent=2, sort_keys=True))
 
 
