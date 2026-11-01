@@ -192,6 +192,7 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                 stats["raw_models"] += 1
                 write_policy(output / "last-policy.tsv", n, target, policy)
                 added = 0
+                round_new = set()
                 full_scan = True
                 before = time.monotonic()
                 for mask in masks:
@@ -204,8 +205,11 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                             continue
                         clause = checked_clause(witness, n, target, independent)
                         if tuple(clause) in learned:
+                            if tuple(clause) in round_new:
+                                continue  # same necessary witness across multiple residuals
                             raise RuntimeError("SAT assignment violates an existing clause")
                         learned.add(tuple(clause))
+                        round_new.add(tuple(clause))
                         enc.add_clause(clause)
                         records.write(json.dumps(
                             {"witness": witness, "clause": clause},
