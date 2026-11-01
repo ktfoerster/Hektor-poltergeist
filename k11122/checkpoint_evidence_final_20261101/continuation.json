@@ -1,0 +1,38 @@
+{
+  "source_commit": "8ad0d711911c5b2f49115b96d7ed3c80704bcef9",
+  "total_seconds": 43.91071254400049,
+  "summary": {
+    "batch_binary_sha256": "8b48ea2248f9cfb46effc5736d0a3f5efb731b3c2e3c9655a0f941e461d55710",
+    "batch_cpp_seconds": 2.6011729300025763,
+    "batch_invocations": 464,
+    "batch_python_check_seconds": 1.165638762022354,
+    "budget_seconds": 30.0,
+    "checkpoint_count": 466,
+    "checkpoint_mode": "journal",
+    "checkpoint_seconds": 1.671515770991391,
+    "completed_scans": 0,
+    "construction_seconds": 0.03988195599958999,
+    "elapsed_seconds": 30.005238292000286,
+    "final_export_seconds": 0.09782262500084471,
+    "finite_suite_candidates": 0,
+    "inherited_witnesses": 218976,
+    "interrupted_scans": 464,
+    "max_new_per_round": 96,
+    "new_witnesses": 44448,
+    "peak_rss_kib": 224132,
+    "raw_models": 464,
+    "recovered_uncommitted_body_bytes": 0,
+    "recovered_uncommitted_witness_bytes": 0,
+    "replay_seconds": 5.192785520010148,
+    "solver_seconds": 2.3109317789912893,
+    "status": "UNKNOWN",
+    "walker": "cpp"
+  },
+  "audit": {
+    "status": "CHECKED",
+    "clauses": 274779,
+    "witnesses": 263424,
+    "variables": 4736,
+    "cnf_sha256": "595db794a86c6ca9dfc3b8b9e86ef9cee2518c78eb99db5c172c7464fac46f99"
+  }
+}

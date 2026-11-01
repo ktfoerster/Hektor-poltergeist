@@ -1,0 +1,116 @@
+{
+  "metadata": {
+    "backend": "cadical195",
+    "branch": 0,
+    "clause_body_bytes": 13041153,
+    "clause_body_sha256": "c614b896081ee2e02e320d302ae585ad8ba89358d5c70461d2dd16296118c5c5",
+    "clauses": 274779,
+    "commits": 466,
+    "encoding": "source-reachable-lasso-journal-v1",
+    "imported": {
+      "intersection_count": 2579,
+      "resumed_from": {
+        "checkpoint_kind": "complete",
+        "checkpoint_sha256": "f3d846004b438d41883b1fd57ae0998d0f28f16861c5dbf53f03fa16359b1b5a",
+        "formula_sha256": "8230d46a5b9f7088c4742d85244d03b76ef4a16986584182a3e70fb7564dcead",
+        "manifest_sha256": "f3d846004b438d41883b1fd57ae0998d0f28f16861c5dbf53f03fa16359b1b5a",
+        "migration": "independently rechecked CNF and every committed witness",
+        "source_sha256": {
+          "lasso_batch.cpp": "92aeb9ce8ea4ee143142a8aa6a00ec200d3a2d6dd3aa26feacbd77f244c5753e",
+          "lasso_checkpoint.py": "1c4c76d27ba34976ac91a3a340de6992a83e6d5ea9bb6c60f24b02ea18c51c44",
+          "lasso_search.py": "611749bfeaf1dccbb3966a58006c56a8103c06432ca504d8bc35a77487ba967c",
+          "lasso_witness.py": "0a06a1846828469bb39bd65d8d7b5e0f8de3f2c6c3d9ec2b1c69e09677c18ec7",
+          "merge_checkpoints.py": "33333b8bc93814a034f2a222314ec2f638828d22cc98b91afc61774fb03d208c",
+          "proof_cnf.py": "2e3da11ddf68c8a42e705f24ff70d701ae81855bf8d9530ef79cd64b117770fa",
+          "sat_search.py": "e241e118ffc6143b988e245fa8a3145bbe2739c008fd43be381e02fe5655feb7",
+          "verify.cpp": "cb2f54d14187bd93efd211759445fed6e9b96624b784712c2a7a884c16fa4caf"
+        }
+      },
+      "source_root": "/workspace/scratch/6f1571aef5e4/lasso-merged/k11122/checkpoints/run-41180021309",
+      "sources": [
+        {
+          "artifact_id": 13034617908,
+          "count": 2648,
+          "file": "t0-b0.json",
+          "head_sha": "41dc471dc7538f589b5934e3936d346bc095551f",
+          "sha256": "6e8d4d570a62fb26ecd8680069b8b7aa51487b982ce26e09144212206b720ae1",
+          "source_sha256": {
+            "counterexample_miner.cpp": "f6512a30bf8f0d176960a5eb2dcd0a2afca95d99597860301048ef379758ae25",
+            "merge_checkpoints.py": "a17c2cd30b65a96cc8a782b1f29353506a2831cd5db6c05c70952579f259be6b",
+            "sat_search.py": "e241e118ffc6143b988e245fa8a3145bbe2739c008fd43be381e02fe5655feb7",
+            "verify.cpp": "cb2f54d14187bd93efd211759445fed6e9b96624b784712c2a7a884c16fa4caf"
+          },
+          "workflow_run_id": 41180021309
+        },
+        {
+          "artifact_id": 13035166567,
+          "count": 2632,
+          "file": "t0-b1.json",
+          "head_sha": "41dc471dc7538f589b5934e3936d346bc095551f",
+          "sha256": "8d40c916f29bf18cdcdae3fc09978de2de1a76a58f613e55e4f9c7b8859a297a",
+          "source_sha256": {
+            "counterexample_miner.cpp": "f6512a30bf8f0d176960a5eb2dcd0a2afca95d99597860301048ef379758ae25",
+            "merge_checkpoints.py": "a17c2cd30b65a96cc8a782b1f29353506a2831cd5db6c05c70952579f259be6b",
+            "sat_search.py": "e241e118ffc6143b988e245fa8a3145bbe2739c008fd43be381e02fe5655feb7",
+            "verify.cpp": "cb2f54d14187bd93efd211759445fed6e9b96624b784712c2a7a884c16fa4caf"
+          },
+          "workflow_run_id": 41180021309
+        }
+      ]
+    },
+    "masks": 2701,
+    "masks_sha256": "3a2af67a602ea6cace917d4fa69b39182e646accef73484bcb458df316a14187",
+    "n": 7,
+    "progress": {
+      "batch_binary_sha256": "8b48ea2248f9cfb46effc5736d0a3f5efb731b3c2e3c9655a0f941e461d55710",
+      "batch_cpp_seconds": 2.6011729300025763,
+      "batch_invocations": 464,
+      "batch_python_check_seconds": 1.165638762022354,
+      "budget_seconds": 30.0,
+      "checkpoint_count": 465,
+      "checkpoint_mode": "journal",
+      "checkpoint_seconds": 1.669701302991598,
+      "completed_scans": 0,
+      "construction_seconds": 0.03988195599958999,
+      "elapsed_seconds": 30.005238292000286,
+      "final_export_seconds": 0.0,
+      "finite_suite_candidates": 0,
+      "inherited_witnesses": 218976,
+      "interrupted_scans": 464,
+      "max_new_per_round": 96,
+      "new_witnesses": 44448,
+      "peak_rss_kib": 224132,
+      "raw_models": 464,
+      "recovered_uncommitted_body_bytes": 0,
+      "recovered_uncommitted_witness_bytes": 0,
+      "replay_seconds": 5.192785520010148,
+      "solver_seconds": 2.3109317789912893,
+      "status": "UNKNOWN",
+      "walker": "cpp"
+    },
+    "schema": 1,
+    "scope": "frozen finite residual suite; not a solver-memory snapshot",
+    "seed": 20261101,
+    "selectors_sha256": "f8ba60872dffb3db5966419f4030394ffd3cd9b6ea667eb9e6d2a352f2713785",
+    "source_sha256": {
+      "lasso_batch.cpp": "92aeb9ce8ea4ee143142a8aa6a00ec200d3a2d6dd3aa26feacbd77f244c5753e",
+      "lasso_checkpoint.py": "1c4c76d27ba34976ac91a3a340de6992a83e6d5ea9bb6c60f24b02ea18c51c44",
+      "lasso_journal.py": "6c9d981126d961c72dda02bfb053d3b5a21cd26da0c8225f480241fdcfe53801",
+      "lasso_search.py": "1a1d8f40e9d3b00cc13c165492a1c3ba2a1aafc7301a43649880265cd0d57cbb",
+      "lasso_witness.py": "0a06a1846828469bb39bd65d8d7b5e0f8de3f2c6c3d9ec2b1c69e09677c18ec7",
+      "merge_checkpoints.py": "33333b8bc93814a034f2a222314ec2f638828d22cc98b91afc61774fb03d208c",
+      "proof_cnf.py": "2e3da11ddf68c8a42e705f24ff70d701ae81855bf8d9530ef79cd64b117770fa",
+      "sat_search.py": "e241e118ffc6143b988e245fa8a3145bbe2739c008fd43be381e02fe5655feb7",
+      "verify.cpp": "cb2f54d14187bd93efd211759445fed6e9b96624b784712c2a7a884c16fa4caf"
+    },
+    "target": 0,
+    "variables": 4736,
+    "witness_bytes": 62970791,
+    "witness_sha256": "bdd59e913b4428aff1bcad4a23e31f8a0dd5d5081f926bc938056e644bca4a4c",
+    "witnesses": 263424
+  },
+  "verified_clauses": 274779,
+  "verified_witnesses": 263424,
+  "uncommitted_body_bytes": 0,
+  "uncommitted_witness_bytes": 0
+}

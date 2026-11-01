@@ -145,3 +145,39 @@ checks (`integration-tests.log`). A five-second generation-mode integration
 smoke run independently audited 25,824 new witnesses; every witness matched the
 exact prefix of the earlier measured run (`integration-smoke.json`). This is
 integration validation, not a new comparative throughput result.
+
+## Merge and bounded continuation
+
+PR #1 merged as `8ad0d711911c5b2f49115b96d7ed3c80704bcef9`, after resolving
+main's independent journal development and passing the combined 61-test suite.
+The merged tree exactly matches the tested integration tree.
+
+A separate **30-second** continuation used a clean checkout of that merge,
+the journal default, target 0 branch 0, and the same frozen suite, seed,
+96-witness cap and C++ binary. It explicitly re-audited and migrated `new-2`'s
+218,976 inherited witnesses into the journal engine. It then checked **44,448
+new witnesses** from 464 raw assignments. The final complete certificate has
+**263,424 witnesses, 274,779 clauses and 4,736 variables**. Both its full
+independent certificate audit and committed-journal check passed.
+
+Final CNF SHA-256:
+`595db794a86c6ca9dfc3b8b9e86ef9cee2518c78eb99db5c172c7464fac46f99`.
+Total subprocess wall time, including initialization, imported-certificate
+audit/reconstruction, final export and final audit: **43.911 seconds**.
+The 30-second search budget includes initial re-audit/import; it is not a
+30-second fresh search or a strict total-process deadline. Reported peak RSS
+was 224,132 KiB. This is an audited continuation, not another throughput pair.
+No complete finite-suite candidate appeared; the exhaustive positive verifier
+was available but never needed. Status remains **UNKNOWN for both orbits**.
+
+The evidence archive preserves all six complete final benchmark certificates,
+the continuation and its committed journal/body, reports, input masks,
+canonical witnesses and hashed scanner logs. Parent manifest and formula hashes
+in the continuation link back to its bundled `new-2` checkpoint. A `SHA256.json`
+index covers archive contents. Redundant intermediate generations and
+uncommitted working files are omitted; measured disk totals include them.
+
+Preserved evidence file: `K11122_Final_Checkpoint_Benchmark_2026-11-01.tar.gz`
+(71,792,839 bytes), archive SHA-256
+`ec88d59d29defc5beb412b98fb3affbfd8321e975a30d33c817b22c59073f7d2`.
+All 87 indexed file hashes were verified by reading the completed archive.
