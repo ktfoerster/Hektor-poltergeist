@@ -1,0 +1,41 @@
+name: K11122 bounded adaptive CNF pilot
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/k11122-adaptive.yml'
+permissions:
+  contents: read
+concurrency:
+  group: k11122-adaptive-pilot
+  cancel-in-progress: false
+jobs:
+  adaptive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install python-sat==1.8.dev24 z3-solver==4.13.3.0
+      - name: Regression and exhaustive small-instance coverage tests
+        run: python -m unittest discover -s k11122 -v
+      - name: Export pinned parent and initialize coverage ledger
+        run: |
+          python k11122/proof_cnf.py export --target 0 --branch 0 --checkpoint k11122/checkpoints/run-41180021309/t0-b0.json --output parent
+          python -c "import json; assert json.load(open('parent/export.json'))['cnf_sha256']=='61c1ea4f4b0dbdd2d49393336ea2c964cd1c62f3eafab9f29456e7e8c5751af5'"
+          python k11122/adaptive_cnf.py init --parent parent --work adaptive
+      - name: Bounded adaptive queue
+        run: python k11122/adaptive_cnf.py run --work adaptive --seconds 1200 --node-seconds 120 --probe-seconds 45 --attempts 8 --max-depth 3
+      - name: Check coverage and independently recheck closed leaves
+        run: |
+          python k11122/adaptive_cnf.py validate --work adaptive
+          python k11122/adaptive_cnf.py audit --work adaptive --seconds 120
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k11122-adaptive-${{ github.run_id }}
+          path: adaptive/
+          retention-days: 30
+          compression-level: 6

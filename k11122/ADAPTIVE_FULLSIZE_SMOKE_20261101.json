@@ -1,0 +1,224 @@
+{
+  "parent_sha256": "61c1ea4f4b0dbdd2d49393336ea2c964cd1c62f3eafab9f29456e7e8c5751af5",
+  "coverage_validation": "PASS",
+  "probe_run": {
+    "returncode": 0,
+    "seconds": 12.974074999998265,
+    "timeout": false
+  },
+  "classification": "UNCHANGED",
+  "probe": {
+    "literal": 4,
+    "method": "bounded candidate unit-propagation scoring; not solver runtime prediction",
+    "records": [
+      {
+        "literal": 4,
+        "sides": [
+          {
+            "consistent": true,
+            "propagated": 176
+          },
+          {
+            "consistent": true,
+            "propagated": 176
+          }
+        ]
+      },
+      {
+        "literal": 6,
+        "sides": [
+          {
+            "consistent": true,
+            "propagated": 2
+          },
+          {
+            "consistent": true,
+            "propagated": 2
+          }
+        ]
+      },
+      {
+        "literal": 537,
+        "sides": [
+          {
+            "consistent": true,
+            "propagated": 105
+          },
+          {
+            "consistent": true,
+            "propagated": 1
+          }
+        ]
+      },
+      {
+        "literal": 625,
+        "sides": [
+          {
+            "consistent": true,
+            "propagated": 4
+          },
+          {
+            "consistent": true,
+            "propagated": 1
+          }
+        ]
+      },
+      {
+        "literal": 1173,
+        "sides": [
+          {
+            "consistent": true,
+            "propagated": 132
+          },
+          {
+            "consistent": true,
+            "propagated": 1
+          }
+        ]
+      },
+      {
+        "literal": 1183,
+        "sides": [
+          {
+            "consistent": true,
+            "propagated": 47
+          },
+          {
+            "consistent": true,
+            "propagated": 1
+          }
+        ]
+      },
+      {
+        "literal": 1765,
+        "sides": [
+          {
+            "consistent": true,
+            "propagated": 6
+          },
+          {
+            "consistent": true,
+            "propagated": 1
+          }
+        ]
+      },
+      {
+        "literal": 1790,
+        "sides": [
+          {
+            "consistent": true,
+            "propagated": 194
+          },
+          {
+            "consistent": true,
+            "propagated": 1
+          }
+        ]
+      },
+      {
+        "literal": 2346,
+        "sides": [
+          {
+            "consistent": true,
+            "propagated": 8
+          },
+          {
+            "consistent": true,
+            "propagated": 1
+          }
+        ]
+      },
+      {
+        "literal": 2413,
+        "sides": [
+          {
+            "consistent": true,
+            "propagated": 56
+          },
+          {
+            "consistent": true,
+            "propagated": 1
+          }
+        ]
+      },
+      {
+        "literal": 2896,
+        "sides": [
+          {
+            "consistent": true,
+            "propagated": 6
+          },
+          {
+            "consistent": true,
+            "propagated": 1
+          }
+        ]
+      },
+      {
+        "literal": 3037,
+        "sides": [
+          {
+            "consistent": true,
+            "propagated": 32
+          },
+          {
+            "consistent": true,
+            "propagated": 1
+          }
+        ]
+      },
+      {
+        "literal": 3516,
+        "sides": [
+          {
+            "consistent": true,
+            "propagated": 6
+          },
+          {
+            "consistent": true,
+            "propagated": 1
+          }
+        ]
+      },
+      {
+        "literal": 3564,
+        "sides": [
+          {
+            "consistent": true,
+            "propagated": 46
+          },
+          {
+            "consistent": true,
+            "propagated": 1
+          }
+        ]
+      },
+      {
+        "literal": 4133,
+        "sides": [
+          {
+            "consistent": true,
+            "propagated": 6
+          },
+          {
+            "consistent": true,
+            "propagated": 1
+          }
+        ]
+      },
+      {
+        "literal": 4158,
+        "sides": [
+          {
+            "consistent": true,
+            "propagated": 49
+          },
+          {
+            "consistent": true,
+            "propagated": 1
+          }
+        ]
+      }
+    ]
+  }
+}
