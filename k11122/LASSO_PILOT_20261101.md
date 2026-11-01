@@ -10,7 +10,7 @@ This pilot tests only target 0, physical-first-hop branch 0.
 - Artifact ZIP SHA-256: `abcf16e57c1cb096483b627c386e590adba0c036e2793d3656b2c156b3608ce5`
 - Code tested: `56e7956c0f399cfc0ac0dc758deb0477fdbe84ae`
 - Frozen strict target-0 union: **2701 residual masks**, original two branches 2648 and 2632, intersection 2579. Unconditional masks merged, no branch assumptions imported.
-- Existing rank CNF on identical masks, branch 0: **1,~** variables; see actual rank/export.json for exact count, **4,871,885 clauses**, exported in **7.59 wall seconds** (30,276 KiB peak for exporter). Rank CNF was *not* solved in this comparison; do not present as a solver speedup.
+- Existing rank CNF on identical masks, branch 0: **1,277,670 variables**, **4,871,885 clauses**, exported in **7.59 wall seconds** (30,276 KiB peak for exporter). Rank CNF was *not* solved in this comparison; do not present as a solver speedup.
 - New rank-free CNF, same masks and branch: **4,736 global selector variables**, **72,603 clauses** at checkpoint, including **61,248 independently replayed reachable-failure witness clauses**; exact final DIMACS SHA-256 `34792b5e850afc31b586604756a2ce3d4e60674b9b53eafff8e00eafb6cf1ba6`.
 - Search: **75-second budget**, **638 raw SAT assignments**, **0 complete frozen-suite scans**, **0 finite-suite candidates**, **UNKNOWN**. It added at most 96 necessary witness clauses per raw model and never interpreted that model as satisfying the complete frozen suite.
 - Timing: roughly **61.49 s** in Python finite-suite walks, **2.79 s** in SAT solver slices. Measured external learner wall time **77.55 s**, peak **90,568 KiB**. Construction alone was **0.041 s**, but these timings measure different work and do not establish any solver speedup.
