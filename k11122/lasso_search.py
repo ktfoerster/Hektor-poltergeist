@@ -219,16 +219,17 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                     "migration": "independently rechecked full CNF and all witnesses"
                                  if migrated else "same dependency hashes",
                 }
-                for line in (previous / "witnesses.jsonl").read_text().splitlines():
-                    item = json.loads(line)
-                    clause = checked_clause(item["witness"], n, target, independent)
-                    if tuple(clause) in learned:
-                        raise ValueError("duplicate resumed blocking clause")
-                    learned.add(tuple(clause))
-                    enc.add_clause(clause)
-                    records.write(line + "\n")
-                    witness_count += 1
-                    stats["inherited_witnesses"] += 1
+                with (previous / "witnesses.jsonl").open() as prior_records:
+                    for line in prior_records:
+                        item = json.loads(line)
+                        clause = checked_clause(item["witness"], n, target, independent)
+                        if tuple(clause) in learned:
+                            raise ValueError("duplicate resumed blocking clause")
+                        learned.add(tuple(clause))
+                        enc.add_clause(clause)
+                        records.write(line.rstrip("\n") + "\n")
+                        witness_count += 1
+                        stats["inherited_witnesses"] += 1
                 stats["resume_seconds"] = time.monotonic() - resume_started
             records.flush()
             save(force=True)

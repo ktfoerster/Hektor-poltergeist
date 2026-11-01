@@ -1,0 +1,14 @@
+{
+  "result": {
+    "status": "CHECKED",
+    "clauses": 83835,
+    "witnesses": 72480,
+    "variables": 4736,
+    "cnf_sha256": "cd6290eba07b19d798fe0854c507a7d62a62f0dc4a8c0651b1b574642d86b716"
+  },
+  "audit_seconds": 3.1609729370102286,
+  "peak_rss_kib": 45616,
+  "auditor_sha256": "4aaff45087f4b6fccff207f19f845498b9e7902c5e7a6dbf4cfbc4cb05804d5b",
+  "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.39"
+}

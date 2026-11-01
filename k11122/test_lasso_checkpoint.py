@@ -156,6 +156,94 @@ save(1)
             self.assertEqual(result['inherited_witnesses'], 0)
             self.assertEqual(audit(Path(temp)/'resumed')['status'], 'CHECKED')
 
+    def test_audit_pins_generation_during_concurrent_publication(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)/'run'
+            cp, save, stats = self.fixture(root)
+            original_sha = sha
+            published = False
+            def publish_then_hash(path):
+                nonlocal published
+                if not published:
+                    published = True
+                    save(1)
+                return original_sha(path)
+            with patch('lasso_witness.sha', publish_then_hash):
+                # The audit already pinned the old generation before hashing.
+                self.assertEqual(audit(root)['witnesses'], 0)
+            self.assertTrue(published)
+            self.assertEqual(audit(root)['witnesses'], 1)
+
+    def test_missing_hashes_and_accounting_rejected(self):
+        for defect in ('all_hashes', 'formula_hash', 'optional_hash',
+                       'mask_count', 'boolean_count', 'clause_count', 'witness_count'):
+            with self.subTest(defect=defect), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)/'run'
+                cp, save, stats = self.fixture(root)
+                (cp.work/'cpp-batches.jsonl').write_text('{}\n')
+                save(1)
+                manifest = root/'manifest.json'
+                meta = json.loads(manifest.read_text())
+                if defect == 'all_hashes':
+                    meta['sha256'] = {}
+                elif defect == 'formula_hash':
+                    del meta['sha256']['formula.cnf']
+                elif defect == 'optional_hash':
+                    del meta['sha256']['cpp-batches.jsonl']
+                elif defect == 'mask_count':
+                    meta['masks'] = 2
+                elif defect == 'boolean_count':
+                    meta['witnesses'] = True
+                elif defect == 'clause_count':
+                    meta['clauses'] += 1
+                else:
+                    meta['witnesses'] += 1
+                manifest.write_text(json.dumps(meta))
+                with self.assertRaises(ValueError):
+                    audit(root)
+
+    def test_streaming_audit_rejects_rehashed_cnf_edits(self):
+        for defect in ('truncated', 'extra', 'reordered', 'changed_literal'):
+            with self.subTest(defect=defect), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)/'run'
+                cp, save, stats = self.fixture(root)
+                save(1)
+                formula = root/'formula.cnf'
+                lines = formula.read_bytes().splitlines(keepends=True)
+                if defect == 'truncated':
+                    lines.pop()
+                elif defect == 'extra':
+                    lines.append(b'1 0\n')
+                elif defect == 'reordered':
+                    lines[1], lines[2] = lines[2], lines[1]
+                else:
+                    lines[-1] = b'1 0\n'
+                formula.write_bytes(b''.join(lines))
+                meta = json.loads((root/'manifest.json').read_text())
+                meta['sha256']['formula.cnf'] = sha(formula)
+                import hashlib
+                meta['clause_body_sha256'] = hashlib.sha256(b''.join(lines[1:])).hexdigest()
+                (root/'manifest.json').write_text(json.dumps(meta))
+                with self.assertRaises(ValueError):
+                    audit(root)
+
+    def test_resume_normalizes_unterminated_last_witness(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)/'run'
+            cp, save, stats = self.fixture(root)
+            save(1)
+            witness = root/'witnesses.jsonl'
+            witness.write_text(witness.read_text().rstrip('\n'))
+            meta = json.loads((root/'manifest.json').read_text())
+            meta['sha256']['witnesses.jsonl'] = sha(witness)
+            (root/'manifest.json').write_text(json.dumps(meta))
+            self.assertEqual(audit(root)['witnesses'], 1)
+            resumed = Path(temp)/'resumed'
+            result = run(resumed, 4, 3, -1, [41], 1, resume=root)
+            self.assertEqual(result['inherited_witnesses'], 1)
+            self.assertTrue((resumed/'witnesses.jsonl').read_bytes().endswith(b'\n'))
+            self.assertEqual(audit(resumed)['status'], 'CHECKED')
+
     def test_invalid_interval(self):
         with tempfile.TemporaryDirectory() as temp:
             for value in (-1, float('nan'), float('inf')):

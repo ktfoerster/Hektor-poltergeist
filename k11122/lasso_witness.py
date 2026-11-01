@@ -186,7 +186,14 @@ def audit(directory):
     geometry(n, target, 0)
     if branch not in (-1, 0, 1) or type(branch) is not int:
         raise ValueError("branch")
-    for filename, digest in meta["sha256"].items():
+    digests = meta.get("sha256")
+    required = {"formula.cnf", "selectors.json", "masks.json", "witnesses.jsonl"}
+    for optional in ("masks.txt", "cpp-batches.jsonl", "last-policy.tsv"):
+        if (root / optional).exists():
+            required.add(optional)
+    if not isinstance(digests, dict) or not required <= digests.keys():
+        raise ValueError("incomplete bundle hashes")
+    for filename, digest in digests.items():
         if Path(filename).name != filename or sha(root / filename) != digest:
             raise ValueError("bundle hash mismatch: " + filename)
     expected_rows = selector_rows(n, target)
@@ -201,36 +208,49 @@ def audit(directory):
     for mask in masks:
         geometry(n, target, mask)
     allowed = set(masks)
-    # Generate the complete expected DIMACS body, in original clause order.
-    expected = list(base_clauses(n, target, branch, expected_rows))
-    witness_count = 0
-    with (root / "witnesses.jsonl").open() as f:
-        for line in f:
-            item = json.loads(line)
-            if set(item) != {"witness", "clause"} or item["witness"]["mask"] not in allowed:
-                raise ValueError("witness not in frozen suite")
-            clause = checked_clause(item["witness"], n, target, expected_rows)
-            if item["clause"] != clause:
-                raise ValueError("incorrect witness clause")
-            expected.append(clause)
-            witness_count += 1
+    if type(meta.get("masks")) is not int or meta["masks"] != len(masks):
+        raise ValueError("mask accounting mismatch")
     variables = sum(map(len, expected_rows.values()))
-    if (meta["variables"] != variables or meta["clauses"] != len(expected)
-            or meta["witnesses"] != witness_count):
+    for key in ("variables", "clauses", "witnesses"):
+        if type(meta.get(key)) is not int or meta[key] < 0:
+            raise ValueError("invalid CNF accounting")
+    if meta["variables"] != variables:
         raise ValueError("CNF accounting mismatch")
+    # Independently reconstruct and compare one clause at a time. No growing
+    # list of all expected clauses, and no trust in the supplied clause count.
     h = hashlib.sha256()
+    clause_count = witness_count = 0
     with (root / "formula.cnf").open("rb") as f:
-        if f.readline() != f"p cnf {variables} {len(expected)}\n".encode():
+        if f.readline() != f"p cnf {variables} {meta['clauses']}\n".encode():
             raise ValueError("DIMACS header")
-        for clause in expected:
+
+        def compare(clause):
+            nonlocal clause_count
             raw = (" ".join(map(str, clause)) + " 0\n").encode()
             if f.readline() != raw:
                 raise ValueError("DIMACS clause/translation mismatch")
             h.update(raw)
+            clause_count += 1
+
+        for clause in base_clauses(n, target, branch, expected_rows):
+            compare(clause)
+        with (root / "witnesses.jsonl").open() as records:
+            for line in records:
+                item = json.loads(line)
+                if (set(item) != {"witness", "clause"} or
+                        item["witness"]["mask"] not in allowed):
+                    raise ValueError("witness not in frozen suite")
+                clause = checked_clause(item["witness"], n, target, expected_rows)
+                if item["clause"] != clause:
+                    raise ValueError("incorrect witness clause")
+                compare(clause)
+                witness_count += 1
         if f.read(1):
             raise ValueError("extra DIMACS data")
+    if meta["clauses"] != clause_count or meta["witnesses"] != witness_count:
+        raise ValueError("CNF accounting mismatch")
     if h.hexdigest() != meta["clause_body_sha256"]:
         raise ValueError("CNF fingerprint mismatch")
-    return {"status": "CHECKED", "clauses": len(expected),
+    return {"status": "CHECKED", "clauses": clause_count,
             "witnesses": witness_count, "variables": variables,
             "cnf_sha256": sha(root / "formula.cnf")}

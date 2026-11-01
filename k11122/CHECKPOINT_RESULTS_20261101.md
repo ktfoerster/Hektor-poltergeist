@@ -106,7 +106,8 @@ and binary hashes, frozen masks, seeds and imported checkpoint hashes remain.
 Resume re-audits the entire prior CNF and every witness, enforces model/branch/
 suite equality, and requires explicit `--allow-audited-migration` for changed
 source hashes. The independent auditor has no dependency on the checkpoint
-writer or solver: its only change is resolving and pinning `current`.
+writer or solver. At the initial checkpoint benchmark, its only change was
+resolving and pinning `current`; the follow-up streaming change is described below.
 
 Tradeoff: retaining all generations uses more disk space. These short runs
 used about 74–82 MiB each including working files, versus 23–27 MiB for the
@@ -176,3 +177,64 @@ Python/platform/dependency versions, raw timers, and audit results. The separate
 compressed evidence archive preserves complete final certificates, intermediate
 committed generations, matching benchmark source, and test output. These data
 are measurements from this local environment, not a GitHub Actions run.
+
+## Follow-up review: streaming audit and manifest completeness
+
+A second review identified two avoidable allocations: audit built a list of
+all independently reconstructed clauses before comparing the CNF, and resume
+loaded the entire witness log into a string and split-line list. Both now stream
+records. Audit still reconstructs each clause independently, compares exact
+DIMACS bytes and order, checks the final actual counts, rejects extra data and
+checks the body fingerprint. Resume still audits before importing and normalizes
+the final record terminator so an old JSONL file without a trailing newline
+cannot become a concatenated invalid record during continuation.
+
+Audit previously checked only hashes present in the manifest. It now requires
+hashes for all four core certificate files, plus known optional policy/mask/
+scanner files that are present. It rejects incorrect mask totals and noninteger
+or inconsistent CNF/witness totals. Missing hashes did not bypass the independent
+clause reconstruction, but accepting an incomplete integrity manifest weakened
+the stated checkpoint provenance contract. Valid flat legacy checkpoints remain
+supported; malformed/incomplete manifests now fail closed.
+
+Fixed input: the existing `new-3` certificate, with 72,480 witnesses, 83,835
+clauses, 4,736 variables, and CNF SHA-256
+`cd6290eba07b19d798fe0854c507a7d62a62f0dc4a8c0651b1b574642d86b716`.
+No new SAT search was performed for these measurements. Each audit ran in a
+fresh process, alternating old/new, new/old, old/new. Both auditors returned
+exactly the same independent CHECKED result and CNF hash in every run.
+
+| Pair | Old audit seconds | Streaming seconds | Old peak RSS (KiB) | Streaming peak RSS (KiB) |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 3.161 | 3.794 | 45,616 | 15,052 |
+| 2 | 2.722 | 2.928 | 44,744 | 15,184 |
+| 3 | 3.793 | 2.310 | 44,744 | 15,184 |
+
+Median peak process RSS decreased from 44,744 to 15,184 KiB (about **66%**).
+This includes the interpreter and imports, not just certificate storage. Audit
+times varied and **do not establish a consistent speedup**. The optimization is
+justified by bounded auxiliary certificate memory. These measurements do not
+replace or extend the earlier 15-second search throughput claims, whose exact
+source versions remain recorded separately.
+
+The complete suite now passes **52 tests**. Four additional test methods cover
+publication during a pinned audit, absent required/optional hashes and malformed
+counts, truncated/extra/reordered/changed CNF records even after recomputing
+file/body hashes, and audited resume from an unterminated final witness record.
+The exact test output is `checkpoint_evidence_20261101/review-tests.log`;
+the six new process measurements are `audit-{old,new}-{1,2,3}.json`.
+
+Reproduce after checking out this PR (its parent contains the old auditor):
+
+```sh
+git show b61ddfb723df1b90bd9fa8e11e0b115b1f328d61:k11122/lasso_witness.py > /tmp/audit-before.py
+# Extract the preserved evidence archive; runs/new-3 is the fixed input.
+python k11122/benchmark_audit.py --auditor /tmp/audit-before.py --bundle runs/new-3
+python k11122/benchmark_audit.py --auditor k11122/lasso_witness.py --bundle runs/new-3
+# Repeat in reverse order, then original order; each invocation is a fresh process.
+python -m unittest discover -s k11122 -v
+```
+
+The original evidence archive is unchanged. These follow-up source changes,
+measurements and tests are retained in the PR. Classification remains UNKNOWN
+for both destination orbits.
