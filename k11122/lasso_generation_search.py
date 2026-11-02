@@ -140,7 +140,10 @@ def independent_replay(out, policy, n, target, verifier):
 def run(output, n, target, branch, masks, seconds, verifier=None,
         resume=None, seed=20261101, backend="cadical195",
         imported=None, max_new_per_round=96, walker="python", batch_binary=None,
-        allow_audited_migration=False, checkpoint_seconds=5.0):
+        allow_audited_migration=False, checkpoint_seconds=5.0,
+        witness_selection="first"):
+    if witness_selection not in ("first", "short-diverse") or (walker != "cpp" and witness_selection != "first"):
+        raise ValueError("short-diverse selection requires C++ walker")
     if type(max_new_per_round) is not int or max_new_per_round < 1:
         raise ValueError("max_new_per_round must be a positive integer")
     if not math.isfinite(checkpoint_seconds) or checkpoint_seconds < 0:
@@ -180,7 +183,8 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                  new_witnesses=0, inherited_witnesses=0,
                  solver_seconds=0.0, replay_seconds=0.0,
                  construction_seconds=base_seconds, budget_seconds=seconds,
-                 max_new_per_round=max_new_per_round,
+                 max_new_per_round=max_new_per_round, witness_selection=witness_selection,
+                 clause_literals_total=0, clause_literals_min=None, clause_literals_max=0,
                  completed_scans=0, interrupted_scans=0, walker=walker,
                  batch_invocations=0, batch_cpp_seconds=0.0,
                  batch_python_check_seconds=0.0,
@@ -277,7 +281,7 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                     try:
                         process = subprocess.run(
                             [str(batch_binary), str((output / "last-policy.tsv").resolve()),
-                             str((output / "masks.txt").resolve()), str(max_new_per_round)],
+                             str((output / "masks.txt").resolve()), str(max_new_per_round), witness_selection],
                             capture_output=True, text=True, check=True,
                             timeout=max(0.01, min(15.0, remaining)))
                     except subprocess.TimeoutExpired:
@@ -299,6 +303,13 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                             report.get("scanned_masks", -1) > len(masks) or
                             type(report.get("scan_complete")) is not bool):
                         raise RuntimeError("invalid C++ scan accounting")
+                    if witness_selection == "short-diverse":
+                        if (report.get("selection") != "short-diverse" or
+                                report.get("scan_complete") is not True or
+                                report.get("scanned_masks") != len(masks) or
+                                type(report.get("unique_candidates")) is not int or
+                                report["unique_candidates"] < len(messages) - 1):
+                            raise RuntimeError("invalid C++ short-diverse full-scan accounting")
                     for item in messages[:-1]:
                         if item.get("type") != "witness" or set(item) != {"type", "witness"}:
                             raise RuntimeError("invalid C++ scan record")
@@ -349,6 +360,9 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                         raise RuntimeError("SAT assignment violates a previously learned clause")
                     learned.add(tuple(clause))
                     round_new.add(tuple(clause))
+                    stats["clause_literals_total"] += len(clause)
+                    stats["clause_literals_min"] = min(len(clause), stats["clause_literals_min"]) if stats["clause_literals_min"] is not None else len(clause)
+                    stats["clause_literals_max"] = max(len(clause), stats["clause_literals_max"])
                     enc.add_clause(clause)
                     records.write(json.dumps(
                         {"witness": witness, "clause": clause},
@@ -411,6 +425,8 @@ def main():
     p.add_argument("--seconds", type=float, default=60)
     p.add_argument("--max-new-per-round", type=int, default=96,
                    help="maximum newly checked witness clauses per SAT assignment")
+    p.add_argument("--witness-selection", choices=("first", "short-diverse"), default="first",
+                   help="C++ witness preference, no routing-model restrictions")
     p.add_argument("--checkpoint-seconds", type=float, default=5.0,
                    help="complete checkpoint interval; 0 publishes every round")
     p.add_argument("--resume", type=Path)
@@ -438,7 +454,8 @@ def main():
                walker=a.walker, batch_binary=a.batch_binary,
                allow_audited_migration=a.allow_audited_migration,
                checkpoint_seconds=a.checkpoint_seconds,
-               max_new_per_round=a.max_new_per_round)
+               max_new_per_round=a.max_new_per_round,
+                witness_selection=a.witness_selection)
     print(json.dumps(data, indent=2, sort_keys=True))
 
 

@@ -1,0 +1,97 @@
+name: K11122 shortest-diverse witness pilot
+on:
+  workflow_dispatch:
+  push:
+    branches: ['research/k11122-witness-selection-20261103']
+    paths:
+      - 'k11122/lasso_batch.cpp'
+      - 'k11122/lasso_search.py'
+      - 'k11122/lasso_generation_search.py'
+      - 'k11122/selection_quality.py'
+      - 'k11122/test_lasso_selection.py'
+      - '.github/workflows/k11122-selection.yml'
+permissions:
+  contents: read
+concurrency:
+  group: k11122-selection-pilot
+  cancel-in-progress: false
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pinned solvers and complete regression suite
+        run: |
+          mkdir -p evidence/bin evidence/source
+          python -m pip install python-sat==1.8.dev24 z3-solver==4.13.3.0
+          python -m pip freeze > evidence/dependencies.txt
+          python -m unittest discover -s k11122 -p 'test_*.py' -v > evidence/tests.log 2>&1 || { tail -n 140 evidence/tests.log; exit 1; }
+          tail -n 12 evidence/tests.log
+      - name: Compile scanner, unchanged verifier and frozen inputs
+        run: |
+          g++ -O3 -std=c++17 -Wall -Wextra -Werror k11122/lasso_batch.cpp -o evidence/bin/lasso_batch
+          g++ -O3 -std=c++17 k11122/verify.cpp -o evidence/bin/verify
+          sha256sum evidence/bin/lasso_batch evidence/bin/verify k11122/verify.cpp k11122/lasso_batch.cpp > evidence/binary-hashes.txt
+          python k11122/merge_checkpoints.py --target 0 --output evidence/merged-t0.json
+          python k11122/merge_checkpoints.py --target 3 --output evidence/merged-t3.json
+          python - <<'PY'
+          import json,pathlib
+          root=pathlib.Path('evidence')
+          for t,expected in ((0,2701),(3,2181)):
+              masks=json.loads((root/f'merged-t{t}.json').read_text())['masks']
+              assert len(masks)==expected
+              (root/f'masks-t{t}.txt').write_text(''.join(f'{m}\n' for m in masks))
+          PY
+      - name: Independently compare same fixed policies
+        run: |
+          for target in 0 3; do
+            evidence/bin/lasso_batch "k11122/phase-seeds/t$target-b0.tsv" "evidence/masks-t$target.txt" 96 first > "evidence/static-t$target-first.jsonl"
+            evidence/bin/lasso_batch "k11122/phase-seeds/t$target-b0.tsv" "evidence/masks-t$target.txt" 96 short-diverse > "evidence/static-t$target-short-diverse.jsonl"
+            python k11122/selection_quality.py --policy "k11122/phase-seeds/t$target-b0.tsv" --masks "evidence/masks-t$target.txt" --first "evidence/static-t$target-first.jsonl" --short "evidence/static-t$target-short-diverse.jsonl" --output "evidence/quality-t$target.json"
+          done
+      - name: Two equal-budget target-0 branch-0 SAT trials
+        run: |
+          for mode in first short-diverse; do
+            /usr/bin/time -v -o "evidence/$mode-time.txt" python k11122/lasso_search.py run --target 0 --branch 0 --walker cpp --batch-binary "$PWD/evidence/bin/lasso_batch" --verify "$PWD/evidence/bin/verify" --seconds 25 --seed 20261103 --checkpoint-mode journal --witness-selection "$mode" --output "evidence/$mode" > "evidence/$mode-stdout.json"
+            python k11122/lasso_search.py audit --output "evidence/$mode" > "evidence/$mode-audit.json"
+          done
+          python - <<'PY'
+          import json,pathlib
+          root=pathlib.Path('evidence'); comparison={}
+          for mode in ('first','short-diverse'):
+              s=json.loads((root/mode/'summary.json').read_text())
+              m=json.loads((root/mode/'manifest.json').read_text())
+              a=json.loads((root/mode/'audit.json').read_text())
+              assert a['status']=='CHECKED' and m['target']==0 and m['branch']==0 and m['masks']==2701
+              keys=('status','raw_models','new_witnesses','witness_selection','clause_literals_total',
+                    'clause_literals_min','clause_literals_max','solver_seconds','replay_seconds',
+                    'batch_cpp_seconds','batch_python_check_seconds','checkpoint_seconds',
+                    'peak_rss_kib','completed_scans','finite_suite_candidates')
+              comparison[mode]={k:s.get(k) for k in keys}
+              comparison[mode]['mean_clause_literals']=(s['clause_literals_total']/s['new_witnesses']
+                      if s['new_witnesses'] else None)
+              comparison[mode]['cnf_sha256']=m['sha256']['formula.cnf']
+          comparison['scope']='Different necessary-clause heuristic; same budget/input/backend/seed, no orbit classification'
+          (root/'search-comparison.json').write_text(json.dumps(comparison,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(comparison,sort_keys=True))
+          PY
+      - name: Independent bounded target-3 trial
+        run: |
+          python k11122/lasso_search.py run --target 3 --branch 0 --walker cpp --batch-binary "$PWD/evidence/bin/lasso_batch" --verify "$PWD/evidence/bin/verify" --seconds 12 --seed 20261103 --checkpoint-mode journal --witness-selection short-diverse --output evidence/target3 > evidence/target3-stdout.json
+          python k11122/lasso_search.py audit --output evidence/target3 > evidence/target3-audit.json
+      - name: Preserve source, formula certificates and hashes
+        if: always()
+        run: |
+          cp k11122/lasso_batch.cpp k11122/lasso_search.py k11122/lasso_generation_search.py k11122/lasso_witness.py k11122/selection_quality.py k11122/test_lasso_selection.py .github/workflows/k11122-selection.yml evidence/source/
+          echo "$GITHUB_SHA" > evidence/commit.txt
+          find evidence -type f ! -name SHA256SUMS ! -name .owner.lock -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k11122-clause-selection-evidence
+          path: evidence/
+          retention-days: 30
