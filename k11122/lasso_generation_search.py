@@ -69,7 +69,7 @@ def checked_policy(payload, reference_rows):
 
 
 def source_names():
-    return ("lasso_search.py", "lasso_generation_search.py", "lasso_phase_preferences.py", "lasso_best.py", "lasso_quality.cpp", "lasso_policy_quality.py", "lasso_selection_schedule.py", "lasso_transfer.py", "lasso_transfer_session.py", "lasso_effort.py", "lasso_witness.py", "lasso_batch.cpp", "sat_search.py",
+    return ("lasso_search.py", "lasso_generation_search.py", "lasso_portfolio.py", "lasso_phase_preferences.py", "lasso_best.py", "lasso_quality.cpp", "lasso_policy_quality.py", "lasso_selection_schedule.py", "lasso_transfer.py", "lasso_transfer_session.py", "lasso_effort.py", "lasso_witness.py", "lasso_batch.cpp", "sat_search.py",
              "merge_checkpoints.py", "verify.cpp", "proof_cnf.py", "lasso_checkpoint.py")
 
 

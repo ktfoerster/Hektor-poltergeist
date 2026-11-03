@@ -1,0 +1,135 @@
+name: K11122 independently audited multi-solver clause portfolio
+on:
+  workflow_dispatch:
+  push:
+    branches: ['research/k11122-witness-portfolio-20261103']
+    paths:
+      - 'k11122/lasso_portfolio.py'
+      - 'k11122/test_lasso_portfolio.py'
+      - '.github/workflows/k11122-portfolio.yml'
+      - 'k11122/lasso_search.py'
+      - 'k11122/lasso_generation_search.py'
+permissions:
+  contents: read
+concurrency:
+  group: k11122-portfolio-pilot
+  cancel-in-progress: false
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned SAT deps and run all regressions
+        run: |
+          mkdir -p evidence/bin evidence/source
+          python -m pip install python-sat==1.8.dev24 z3-solver==4.13.3.0
+          python -m pip freeze > evidence/dependencies.txt
+          python -m unittest discover -s k11122 -p 'test_*.py' -v > evidence/tests.log 2>&1 || { tail -n 150 evidence/tests.log; exit 1; }
+          tail -n 14 evidence/tests.log
+      - name: Compile independent full checker and C++ witness/quality scanners
+        run: |
+          g++ -O3 -std=c++17 -Wall -Wextra -Werror k11122/lasso_batch.cpp -o evidence/bin/lasso_batch
+          g++ -O3 -std=c++17 -Wall -Wextra -Werror k11122/lasso_quality.cpp -o evidence/bin/lasso_quality
+          g++ -O3 -std=c++17 k11122/verify.cpp -o evidence/bin/verify
+          sha256sum evidence/bin/* k11122/lasso_batch.cpp k11122/lasso_quality.cpp k11122/verify.cpp > evidence/binary-hashes.txt
+          python k11122/merge_checkpoints.py --target 0 --output evidence/merged-t0.json
+          python - <<'PY'
+          import json
+          m=json.load(open('evidence/merged-t0.json'))['masks']
+          assert len(m)==2701
+          PY
+      - name: Independent diversified source searches on target 0 branch 0
+        run: |
+          for backend in cadical195 maplechrono; do
+            python k11122/lasso_search.py run --target 0 --branch 0 --seconds 9 --budget-scope search --backend "$backend" --seed 20261103 --walker cpp --batch-binary "$PWD/evidence/bin/lasso_batch" --verify "$PWD/evidence/bin/verify" --checkpoint-mode journal --witness-selection hybrid --hybrid-every 8 --output "evidence/source-$backend" > "evidence/source-$backend.json"
+            python k11122/lasso_search.py audit --output "evidence/source-$backend" > "evidence/audit-source-$backend.json"
+          done
+      - name: Construct new independently checked necessary-clause portfolio
+        run: |
+          python k11122/lasso_portfolio.py --target 0 --branch 0 --sources evidence/source-cadical195 evidence/source-maplechrono --output evidence/portfolio > evidence/portfolio-stdout.json
+          python k11122/lasso_search.py audit --output evidence/portfolio > evidence/portfolio-audit.json
+          python - <<'PY'
+          import json,pathlib
+          root=pathlib.Path('evidence')
+          p=json.loads((root/'portfolio/portfolio-summary.json').read_text())
+          a=json.loads((root/'portfolio-audit.json').read_text())
+          assert p['status']=='INDEPENDENTLY_AUDITED_PORTFOLIO'
+          assert p['source_count']==2 and p['deduplicated_witnesses']>0
+          assert p['input_witnesses']>=p['deduplicated_witnesses']
+          assert a['status']=='CHECKED' and a['witnesses']==p['deduplicated_witnesses']
+          assert a['cnf_sha256']==p['formula_sha256']
+          histories=[]
+          for backend in ('cadical195','maplechrono'):
+              log=root/f'source-{backend}/cpp-batches.jsonl'
+              histories.append([json.loads(line)['policy_sha256'] for line in log.read_text().splitlines()])
+          common=min(map(len,histories))
+          assert common>0
+          divergence=next((i+1 for i in range(common) if histories[0][i]!=histories[1][i]),None)
+          (root/'portfolio-divergence.json').write_text(json.dumps(
+              {'common_models':common,'first_divergence':divergence,
+               'actually_divergent':divergence is not None},indent=2)+'\n')
+          assert divergence is not None
+          PY
+      - name: Same active time source-only versus portfolio resumed searches
+        run: |
+          for variant in source-cadical195 source-maplechrono portfolio; do
+            python k11122/lasso_search.py run --target 0 --branch 0 --seconds 12 --budget-scope search --backend cadical195 --seed 20261103 --walker cpp --batch-binary "$PWD/evidence/bin/lasso_batch" --verify "$PWD/evidence/bin/verify" --checkpoint-mode journal --witness-selection hybrid --hybrid-every 8 --best-interval 8 --quality-binary "$PWD/evidence/bin/lasso_quality" --resume "evidence/$variant" --output "evidence/replay-$variant" > "evidence/replay-$variant.json"
+            python k11122/lasso_search.py audit --output "evidence/replay-$variant" > "evidence/replay-$variant-audit.json"
+          done
+      - name: Independently compare all complete resumed CNFs and historical scores
+        run: |
+          python - <<'PY'
+          import pathlib,json,sys
+          sys.path.insert(0,'k11122')
+          from lasso_witness import audit,sha
+          from lasso_best import independently_check_best
+          from lasso_journal import check_committed
+          root=pathlib.Path('evidence')
+          comparisons={}
+          for variant in ('source-cadical195','source-maplechrono','portfolio'):
+              dest=root/f'replay-{variant}'
+              source=root/variant
+              meta=json.loads((dest/'manifest.json').read_text())
+              stats=json.loads((dest/'summary.json').read_text())
+              a=audit(dest)
+              b=independently_check_best(dest)
+              assert a['status']=='CHECKED' and b['status']=='INDEPENDENTLY_REPLAYED_HISTORICAL_BEST'
+              assert check_committed(dest)['verified_witnesses']==meta['witnesses']
+              assert meta['imported']['resumed_from']['manifest_sha256']==sha(source/'manifest.json')
+              assert meta['imported']['resumed_from']['formula_sha256']==sha(source/'formula.cnf')
+              assert stats['inherited_witnesses']==json.loads((source/'manifest.json').read_text())['witnesses']
+              assert stats['status']=='UNKNOWN' and stats['finite_suite_candidates']==0
+              assert b['quality']==stats['best_observed_raw_quality']
+              assert stats['budget_scope']=='search' and stats['quality_scored_raw_models']>0
+              comparisons[variant]={
+                  'inherited_verified_necessary_clauses':stats['inherited_witnesses'],
+                  'new_verified_necessary_clauses':stats['new_witnesses'],
+                  'raw_models':stats['raw_models'],
+                  'best_historical_failing_masks':b['quality']['failing_residual_masks'],
+                  'best_historical_failed_sources':b['quality']['failed_connected_sources'],
+                  'source_manifest_sha256':sha(source/'manifest.json'),
+                  'terminal_cnf_sha256':a['cnf_sha256'],
+                  'preparation_seconds':stats['preparation_seconds'],
+                  'active_search_seconds':stats['elapsed_seconds'],
+                  'finite_suite_candidates':stats['finite_suite_candidates'],
+                  'status':stats['status']}
+          comparisons['interpretation']='Single fixed-seed per arm; historical best raw policy not SAT for terminal CNF; no graph theorem.'
+          (root/'portfolio-comparison.json').write_text(json.dumps(comparisons,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(comparisons,sort_keys=True))
+          PY
+      - name: Preserve full source, checksums, CNFs and evidence
+        if: always()
+        run: |
+          cp k11122/lasso_portfolio.py k11122/test_lasso_portfolio.py k11122/lasso_search.py k11122/lasso_witness.py .github/workflows/k11122-portfolio.yml evidence/source/
+          echo "$GITHUB_SHA" > evidence/commit.txt
+          find evidence -type f ! -name SHA256SUMS ! -name .owner.lock -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k11122-portfolio-evidence
+          path: evidence/
+          retention-days: 30
