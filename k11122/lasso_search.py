@@ -487,7 +487,8 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
     (output / "audit.json").write_text(json.dumps(result, indent=2) + "\n")
     if best_tracker is not None:
         best_audit = independently_check_best(output)
-        if best_audit["status"] != "INDEPENDENTLY_REPLAYED_HISTORICAL_BEST" or best_audit["quality"] != stats["best_observed_raw_quality"]:
+        if (best_audit["status"] != ("INDEPENDENTLY_REPLAYED_HISTORICAL_BEST" if stats["raw_models"] else "NO_SCORED_POLICY") or
+                (stats["raw_models"] and best_audit["quality"] != stats["best_observed_raw_quality"])):
             raise RuntimeError("historical best policy independent replay mismatch")
         (output / "best-policy-audit.json").write_text(json.dumps(best_audit, indent=2, sort_keys=True) + "\n")
         stats["best_policy_independent_status"] = best_audit["status"]
