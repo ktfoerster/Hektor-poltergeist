@@ -2,9 +2,12 @@
 // Reuse the exact deterministic walker compiled with the lasso scanner.
 // Best-policy selection is diagnostic only; the Python independent literal
 // replay must recheck every reported best before publication.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wreturn-type"
 #define main lasso_batch_reference_cli
 #include "lasso_batch.cpp"
 #undef main
+#pragma GCC diagnostic pop
 
 int main(int argc, char** argv) {
  try {
