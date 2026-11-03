@@ -1,0 +1,159 @@
+name: K11122 two-orbit two-branch certified portfolio matrix
+on:
+  workflow_dispatch:
+  push:
+    branches: ['research/k11122-portfolio-matrix-20261103']
+    paths:
+      - 'k11122/portfolio_matrix.py'
+      - 'k11122/test_portfolio_matrix.py'
+      - '.github/workflows/k11122-portfolio-matrix.yml'
+permissions:
+  contents: read
+concurrency:
+  group: k11122-two-orbit-portfolio-matrix
+  cancel-in-progress: false
+jobs:
+  all-four-cases:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pinned solvers and entire K11122 regression suite
+        run: |
+          mkdir -p evidence/bin evidence/source
+          python -m pip install python-sat==1.8.dev24 z3-solver==4.13.3.0
+          python -m pip freeze > evidence/dependencies.txt
+          python -m unittest discover -s k11122 -p 'test_*.py' -v > evidence/tests.log 2>&1 || { tail -n 180 evidence/tests.log; exit 1; }
+          tail -n 12 evidence/tests.log
+      - name: Strictly compile scanner, quality scorer and unchanged exhaustive verifier
+        run: |
+          g++ -O3 -std=c++17 -Wall -Wextra -Werror k11122/lasso_batch.cpp -o evidence/bin/lasso_batch
+          g++ -O3 -std=c++17 -Wall -Wextra -Werror k11122/lasso_quality.cpp -o evidence/bin/lasso_quality
+          g++ -O3 -std=c++17 k11122/verify.cpp -o evidence/bin/verify
+          sha256sum evidence/bin/* k11122/lasso_batch.cpp k11122/lasso_quality.cpp k11122/verify.cpp > evidence/binary-hashes.txt
+          python k11122/merge_checkpoints.py --target 0 --output evidence/merged-t0.json
+          python k11122/merge_checkpoints.py --target 3 --output evidence/merged-t3.json
+          python - <<'PY'
+          import json
+          for target,expected in ((0,2701),(3,2181)):
+              data=json.load(open(f'evidence/merged-t{target}.json'))
+              assert len(data['masks'])==expected
+              assert data['masks']==sorted(set(data['masks']))
+          PY
+      - name: Run all four controlled source-portfolio-continuation experiments
+        run: |
+          /usr/bin/time -v -o evidence/matrix-wall.txt \
+            python k11122/portfolio_matrix.py \
+            --output evidence/matrix \
+            --scanner "$PWD/evidence/bin/lasso_batch" \
+            --scorer "$PWD/evidence/bin/lasso_quality" \
+            --verifier "$PWD/evidence/bin/verify" \
+            --source-seconds 7 --continuation-seconds 9 \
+            --seed 20261103 --cases all \
+            > evidence/matrix-stdout.jsonl
+      - name: Re-audit all frozen source and continuation CNFs; compare portfolios
+        run: |
+          python - <<'PY'
+          import json,pathlib,sys
+          sys.path.insert(0,'k11122')
+          from lasso_witness import audit,sha
+          from lasso_best import independently_check_best
+          from lasso_journal import check_committed
+          from lasso_divergence import first_divergence
+          root=pathlib.Path('evidence/matrix')
+          result=json.loads((root/'matrix-results.json').read_text())
+          assert result['schema']==1 and result['source_seconds']==7
+          assert result['continuation_seconds']==9 and result['seed']==20261103
+          assert set(result['cases'])=={'t0-b0','t0-b1','t3-b0','t3-b1'}
+          compact={}
+          for name,info in sorted(result['cases'].items()):
+              t,b=info['target'],info['branch']
+              expected=2701 if t==0 else 2181
+              assert info['frozen_masks']==expected
+              cases=root/name
+              assert (t,b) in ((0,0),(0,1),(3,0),(3,1))
+              portfolio=info['portfolio']
+              assert portfolio['target']==t and portfolio['branch']==b
+              assert portfolio['residuals']==expected
+              assert portfolio['source_count']==2
+              assert sum(s['original_checked_witnesses'] for s in portfolio['source_details'])==portfolio['input_witnesses']
+              assert portfolio['input_witnesses']==portfolio['deduplicated_witnesses']+portfolio['duplicates_eliminated']
+              assert portfolio['deduplicated_witnesses']>0
+              assert portfolio['status']=='INDEPENDENTLY_AUDITED_PORTFOLIO'
+              source_names=['source-cadical195','source-maplechrono']
+              if (cases/'source-phase').exists():
+                  source_names.append('source-phase')
+              for f in source_names+['portfolio']+['continue-cadical','continue-alternative','continue-pooled']:
+                  bundle=cases/f
+                  a=audit(bundle)
+                  m=json.loads((bundle/'manifest.json').read_text())
+                  assert a['status']=='CHECKED'
+                  assert (m['n'],m['target'],m['branch'],m['masks'])==(7,t,b,expected)
+                  assert m['sha256']['formula.cnf']==a['cnf_sha256']
+                  if f.startswith('source-') or f.startswith('continue-'):
+                      j=check_committed(bundle)
+                      assert j['verified_witnesses']==a['witnesses']
+                  if f.startswith('continue-'):
+                      quality=independently_check_best(bundle)
+                      stats=json.loads((bundle/'summary.json').read_text())
+                      assert stats['budget_scope']=='search' and stats['witness_selection']=='first'
+                      assert stats['quality_tracking_interval']==8
+                      assert stats['elapsed_seconds']>0 and stats['elapsed_seconds']<13
+                      if stats['raw_models']>0:
+                          assert quality['status']=='INDEPENDENTLY_REPLAYED_HISTORICAL_BEST'
+                          assert quality['quality']==stats['best_observed_raw_quality']
+                      else:
+                          assert quality['status']=='NO_SCORED_POLICY'
+              comp=info['comparison']
+              assert set(comp)=={'cadical','alternative','pooled'}
+              for arm in comp.values():
+                  assert arm['active_search_seconds']>0 and arm['active_search_seconds']<13
+                  assert arm['imported']>=0 and arm['newly_certified']>=0
+                  assert arm['total_certified']==arm['imported']+arm['newly_certified']
+              assert comp['pooled']['imported']==portfolio['deduplicated_witnesses']
+              if info['genuine_policy_hash_divergence']:
+                  assert any(x['actually_divergent'] for x in info['diversity'].values())
+              compact[name]={
+                  'genuinely_divergent_sources':info['genuine_policy_hash_divergence'],
+                  'first_difference_in_policy_hashes':{
+                      k:v['first_divergent_model_in_common_prefix']
+                      for k,v in info['diversity'].items()},
+                  'source_witnesses':{
+                      k:v['witnessed_clauses'] for k,v in info['sources'].items()},
+                  'portfolio_unique':portfolio['deduplicated_witnesses'],
+                  'duplicates_eliminated':portfolio['duplicates_eliminated'],
+                  'best_failing_masks':{
+                      k:v['best_sampled_failing_masks'] for k,v in comp.items()},
+                  'best_failed_sources':{
+                      k:v['best_sampled_failed_sources'] for k,v in comp.items()},
+                  'raw_models':{k:v['raw_models'] for k,v in comp.items()},
+                  'preparation_seconds':{k:v['preparation_seconds'] for k,v in comp.items()},
+                  'active_search_seconds':{k:v['active_search_seconds'] for k,v in comp.items()},
+                  'finite_candidates':{k:v['finite_suite_candidates'] for k,v in comp.items()},
+                  'statuses':{k:v['status'] for k,v in comp.items()},
+                  'portfolio_better_than_both_single_sources':(
+                      comp['pooled']['best_sampled_failing_masks'] is not None and
+                      all(comp['pooled']['best_sampled_failing_masks']<
+                          comp[x]['best_sampled_failing_masks']
+                          for x in ('cadical','alternative')
+                          if comp[x]['best_sampled_failing_masks'] is not None))
+              }
+          compact['scope']='Four bounded cells, one deterministic seed each; best sampled historical raw policy only, not terminal SAT or graph theorem.'
+          (pathlib.Path('evidence')/'matrix-comparison.json').write_text(json.dumps(compact,sort_keys=True,indent=2)+'\n')
+          print(json.dumps(compact,sort_keys=True))
+          PY
+      - name: Preserve all complete source/portfolio/terminal CNFs and exact provenance
+        if: always()
+        run: |
+          cp k11122/portfolio_matrix.py k11122/lasso_portfolio.py k11122/lasso_search.py k11122/lasso_witness.py k11122/test_portfolio_matrix.py .github/workflows/k11122-portfolio-matrix.yml evidence/source/
+          echo "$GITHUB_SHA" > evidence/commit.txt
+          find evidence -type f ! -name SHA256SUMS ! -name .owner.lock -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k11122-four-cell-portfolio-evidence
+          path: evidence/
+          retention-days: 30
