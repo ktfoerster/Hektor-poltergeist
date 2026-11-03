@@ -1,0 +1,257 @@
+{
+  "schema": 1,
+  "scientific_status": "UNKNOWN for both target orbits; no finite-suite candidate or certified UNSAT",
+  "interpretation": "Two different bounded configurations, NOT independent statistical replicates, and continuation witness selectors differ.",
+  "cases": [
+    "t0-b0",
+    "t0-b1",
+    "t3-b0",
+    "t3-b1"
+  ],
+  "experiments": {
+    "long_first_witness": {
+      "run_id": 41624096550,
+      "source_seconds": 7,
+      "active_continuation_seconds": 9,
+      "source_backends": [
+        "cadical195",
+        "maplechrono"
+      ],
+      "continuation_backend": "cadical195",
+      "witness_selection": "first",
+      "seed": 20261103,
+      "tests_passed": 97,
+      "artifact_id": 13224879222,
+      "artifact_sha256": "2cd8085a86db91b473975e6ac04602ffbcae6b0279057cc33a383edd5c244400",
+      "externally_checked_artifact_files": 11115,
+      "cases": {
+        "t0-b0": {
+          "target": 0,
+          "branch": 0,
+          "strict_residuals": 2701,
+          "actual_divergence": true,
+          "first_divergent_model": 2,
+          "unique_portfolio_clauses": 82281,
+          "duplicates_removed": 1719,
+          "best_sampled_failing_masks": {
+            "cadical195": 651,
+            "maplechrono": 631,
+            "portfolio": 531
+          },
+          "improvement_masks_over_best_single": 100,
+          "preparation_seconds": {
+            "cadical195": 2.564979677000011,
+            "maplechrono": 1.9129144980000063,
+            "portfolio": 4.437957393000005
+          },
+          "raw_models": {
+            "cadical195": 579,
+            "maplechrono": 591,
+            "portfolio": 604
+          },
+          "status": {
+            "alternative": "UNKNOWN",
+            "cadical": "UNKNOWN",
+            "pooled": "UNKNOWN"
+          }
+        },
+        "t0-b1": {
+          "target": 0,
+          "branch": 1,
+          "strict_residuals": 2701,
+          "actual_divergence": true,
+          "first_divergent_model": 1,
+          "unique_portfolio_clauses": 77267,
+          "duplicates_removed": 1453,
+          "best_sampled_failing_masks": {
+            "cadical195": 534,
+            "maplechrono": 709,
+            "portfolio": 629
+          },
+          "improvement_masks_over_best_single": -95,
+          "preparation_seconds": {
+            "cadical195": 2.5101353029999984,
+            "maplechrono": 1.7088432660000024,
+            "portfolio": 4.110248931000001
+          },
+          "raw_models": {
+            "cadical195": 613,
+            "maplechrono": 656,
+            "portfolio": 592
+          },
+          "status": {
+            "alternative": "UNKNOWN",
+            "cadical": "UNKNOWN",
+            "pooled": "UNKNOWN"
+          }
+        },
+        "t3-b0": {
+          "target": 3,
+          "branch": 0,
+          "strict_residuals": 2181,
+          "actual_divergence": true,
+          "first_divergent_model": 2,
+          "unique_portfolio_clauses": 73722,
+          "duplicates_removed": 1638,
+          "best_sampled_failing_masks": {
+            "cadical195": 440,
+            "maplechrono": 491,
+            "portfolio": 427
+          },
+          "improvement_masks_over_best_single": 13,
+          "preparation_seconds": {
+            "cadical195": 2.4343091570000013,
+            "maplechrono": 1.4279295580000166,
+            "portfolio": 3.79146303899995
+          },
+          "raw_models": {
+            "cadical195": 621,
+            "maplechrono": 661,
+            "portfolio": 608
+          },
+          "status": {
+            "alternative": "UNKNOWN",
+            "cadical": "UNKNOWN",
+            "pooled": "UNKNOWN"
+          }
+        },
+        "t3-b1": {
+          "target": 3,
+          "branch": 1,
+          "strict_residuals": 2181,
+          "actual_divergence": true,
+          "first_divergent_model": 1,
+          "unique_portfolio_clauses": 72813,
+          "duplicates_removed": 1299,
+          "best_sampled_failing_masks": {
+            "cadical195": 400,
+            "maplechrono": 447,
+            "portfolio": 339
+          },
+          "improvement_masks_over_best_single": 61,
+          "preparation_seconds": {
+            "cadical195": 2.282570942999996,
+            "maplechrono": 1.5108956309999826,
+            "portfolio": 3.7180634960000134
+          },
+          "raw_models": {
+            "cadical195": 635,
+            "maplechrono": 646,
+            "portfolio": 638
+          },
+          "status": {
+            "alternative": "UNKNOWN",
+            "cadical": "UNKNOWN",
+            "pooled": "UNKNOWN"
+          }
+        }
+      }
+    },
+    "short_hybrid": {
+      "run_id": 41624732089,
+      "source_seconds": 6,
+      "active_continuation_seconds": 8,
+      "source_backends": [
+        "cadical195",
+        "maplechrono"
+      ],
+      "continuation_backend": "cadical195",
+      "witness_selection": "hybrid every 8",
+      "seed": 20261103,
+      "tests_passed": 98,
+      "artifact_id": 13225168494,
+      "artifact_sha256": "04df2d0582da2f7f316f0a880079f264c296175645ba7e09570b4df2ab6d76a9",
+      "externally_checked_artifact_files": 6523,
+      "cases": {
+        "t0-b0": {
+          "target": 0,
+          "branch": 0,
+          "strict_residuals": 2701,
+          "actual_divergence": true,
+          "first_divergent_model": 2,
+          "unique_portfolio_clauses": 49824,
+          "duplicates_removed": 960,
+          "best_sampled_failing_masks": {
+            "cadical195": 441,
+            "maplechrono": 472,
+            "portfolio": 502
+          },
+          "improvement_masks_over_best_single": -61,
+          "preparation_seconds": null,
+          "raw_models": null,
+          "status": {
+            "cadical195": "UNKNOWN",
+            "maplechrono": "UNKNOWN",
+            "portfolio": "UNKNOWN"
+          }
+        },
+        "t0-b1": {
+          "target": 0,
+          "branch": 1,
+          "strict_residuals": 2701,
+          "actual_divergence": true,
+          "first_divergent_model": 1,
+          "unique_portfolio_clauses": 49096,
+          "duplicates_removed": 824,
+          "best_sampled_failing_masks": {
+            "cadical195": 455,
+            "maplechrono": 487,
+            "portfolio": 369
+          },
+          "improvement_masks_over_best_single": 86,
+          "preparation_seconds": null,
+          "raw_models": null,
+          "status": {
+            "cadical195": "UNKNOWN",
+            "maplechrono": "UNKNOWN",
+            "portfolio": "UNKNOWN"
+          }
+        },
+        "t3-b0": {
+          "target": 3,
+          "branch": 0,
+          "strict_residuals": 2181,
+          "actual_divergence": true,
+          "first_divergent_model": 2,
+          "unique_portfolio_clauses": 46599,
+          "duplicates_removed": 941,
+          "best_sampled_failing_masks": {
+            "cadical195": 297,
+            "maplechrono": 280,
+            "portfolio": 273
+          },
+          "improvement_masks_over_best_single": 7,
+          "preparation_seconds": null,
+          "raw_models": null,
+          "status": {
+            "cadical195": "UNKNOWN",
+            "maplechrono": "UNKNOWN",
+            "portfolio": "UNKNOWN"
+          }
+        },
+        "t3-b1": {
+          "target": 3,
+          "branch": 1,
+          "strict_residuals": 2181,
+          "actual_divergence": true,
+          "first_divergent_model": 1,
+          "unique_portfolio_clauses": 43292,
+          "duplicates_removed": 580,
+          "best_sampled_failing_masks": {
+            "cadical195": 250,
+            "maplechrono": 288,
+            "portfolio": 278
+          },
+          "improvement_masks_over_best_single": -28,
+          "preparation_seconds": null,
+          "raw_models": null,
+          "status": {
+            "cadical195": "UNKNOWN",
+            "maplechrono": "UNKNOWN",
+            "portfolio": "UNKNOWN"
+          }
+        }
+      }
+    }
+  }
+}
