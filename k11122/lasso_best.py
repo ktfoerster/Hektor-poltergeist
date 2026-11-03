@@ -87,7 +87,7 @@ class BestObserved:
     def consider(self, last_policy, global_model_index):
         if type(global_model_index) is not int or global_model_index < 1:
             raise ValueError("nonpositive model identifier")
-        if global_model_index != 1 and global_model_index % self.interval != 0:
+        if self.scored != 0 and global_model_index % self.interval != 0:
             return None
         started = time.monotonic()
         completed = subprocess.run(
