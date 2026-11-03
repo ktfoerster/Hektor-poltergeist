@@ -12,6 +12,7 @@ import time
 
 FILES = ("selectors.json", "masks.json", "witnesses.jsonl", "masks.txt",
          "cpp-batches.jsonl", "last-policy.tsv", "exhaustive-verifier.log",
+         "phase-policy.tsv",
          "best-policy.tsv", "best-policy.json", "quality-samples.jsonl")
 
 

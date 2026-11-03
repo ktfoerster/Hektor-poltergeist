@@ -1,0 +1,85 @@
+name: K11122 verified SAT search diversification
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - research/k11122-solver-diversification-20261103
+    paths:
+      - k11122/lasso_search.py
+      - k11122/lasso_generation_search.py
+      - k11122/lasso_checkpoint.py
+      - k11122/lasso_phase_preferences.py
+      - k11122/lasso_divergence.py
+      - k11122/diversification_pilot.py
+      - k11122/test_lasso_diversification.py
+      - .github/workflows/k11122-diversification.yml
+permissions:
+  contents: read
+concurrency:
+  group: k11122-sat-diversification
+  cancel-in-progress: false
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pinned solver dependencies and full regression suite
+        run: |
+          mkdir -p evidence/bin evidence/source
+          python -m pip install python-sat==1.8.dev24 z3-solver==4.13.3.0
+          python -m pip freeze > evidence/dependencies.txt
+          python -m unittest discover -s k11122 -p 'test_*.py' -v > evidence/tests.log 2>&1 || { tail -n 140 evidence/tests.log; exit 1; }
+          tail -n 12 evidence/tests.log
+      - name: Strictly compile C++ failing-walk scanner, scoring aid and unchanged full verifier
+        run: |
+          g++ -O3 -std=c++17 -Wall -Wextra -Werror k11122/lasso_batch.cpp -o evidence/bin/lasso_batch
+          g++ -O3 -std=c++17 -Wall -Wextra -Werror k11122/lasso_quality.cpp -o evidence/bin/lasso_quality
+          g++ -O3 -std=c++17 k11122/verify.cpp -o evidence/bin/verify
+          sha256sum evidence/bin/lasso_batch evidence/bin/lasso_quality evidence/bin/verify k11122/lasso_batch.cpp k11122/lasso_quality.cpp k11122/verify.cpp > evidence/binary-hashes.txt
+          python k11122/merge_checkpoints.py --target 0 --output evidence/merged-t0.json
+          python k11122/merge_checkpoints.py --target 3 --output evidence/merged-t3.json
+          python - <<'PY'
+          import json
+          for t, n in ((0,2701),(3,2181)):
+              masks=json.load(open(f'evidence/merged-t{t}.json'))['masks']
+              assert len(masks)==n and masks==sorted(set(masks))
+          PY
+      - name: Equal-active-time SAT backend and legal-phase preference comparison
+        run: |
+          /usr/bin/time -v -o evidence/benchmark-wall.txt python k11122/diversification_pilot.py --output evidence/pilot --scanner "$PWD/evidence/bin/lasso_batch" --scorer "$PWD/evidence/bin/lasso_quality" --verifier "$PWD/evidence/bin/verify" --source-seconds 9 --search-seconds 12 --target3-seconds 9 --seed 20261103 > evidence/pilot-stdout.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('evidence/pilot')
+          data=json.loads((root/'diversification-summary.json').read_text())
+          for target, options in ((0,['cadical-none','cadical-first','cadical-hash','glucose-none','maple-none']),
+                                  (3,['cadical-none','cadical-hash','maple-none'])):
+              report=json.loads((root/f'divergence-t{target}.json').read_text())
+              assert len(report['runs'])==len(options)
+              assert report['matched_inherited_necessary_clauses']>0
+              for suffix in options:
+                  run=report['runs'][f't{target}-{suffix}']
+                  assert run['raw_models']>0 and run['complete_policy_hash_records']>0
+                  assert run['independently_replayed_best_historical_policy']['status']=='INDEPENDENTLY_REPLAYED_HISTORICAL_BEST'
+                  assert run['finite_suite_candidates']==0 and run['solver_status']=='UNKNOWN'
+              print('target',target,'diverged',report['observed_at_least_one_actual_divergence'])
+              for suffix, pair in report['divergence_from_baseline'].items():
+                  print(suffix,'first divergence',pair['first_divergent_model_in_common_prefix'],
+                        'common scanned models',pair['common_complete_models'])
+          PY
+      - name: Preserve source, exact hashes, all audited CNFs, witness certificates and policies
+        if: always()
+        run: |
+          cp k11122/lasso_search.py k11122/lasso_generation_search.py k11122/lasso_checkpoint.py k11122/lasso_phase_preferences.py k11122/lasso_divergence.py k11122/diversification_pilot.py k11122/test_lasso_diversification.py .github/workflows/k11122-diversification.yml evidence/source/
+          echo "$GITHUB_SHA" > evidence/commit.txt
+          find evidence -type f ! -name SHA256SUMS ! -name .owner.lock -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k11122-solver-diversification-evidence
+          path: evidence/
+          retention-days: 30

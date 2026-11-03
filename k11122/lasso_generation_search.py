@@ -12,10 +12,11 @@ import resource
 import shutil
 import subprocess
 import time
+from types import SimpleNamespace
 
 from lasso_checkpoint import Checkpoints, checkpoint_root
 from merge_checkpoints import LATEST, merge
-from sat_search import BooleanEncoding, partition, write_policy
+from sat_search import BooleanEncoding, partition, write_policy, read_phase_policy, apply_phase_policy
 from lasso_witness import (sha, selector_rows, trace, checked_clause, audit)
 from lasso_selection_schedule import (validate_selection, effective_selection,
                                       inherited_model_offset)
@@ -68,7 +69,7 @@ def checked_policy(payload, reference_rows):
 
 
 def source_names():
-    return ("lasso_search.py", "lasso_generation_search.py", "lasso_best.py", "lasso_quality.cpp", "lasso_policy_quality.py", "lasso_selection_schedule.py", "lasso_transfer.py", "lasso_transfer_session.py", "lasso_effort.py", "lasso_witness.py", "lasso_batch.cpp", "sat_search.py",
+    return ("lasso_search.py", "lasso_generation_search.py", "lasso_phase_preferences.py", "lasso_best.py", "lasso_quality.cpp", "lasso_policy_quality.py", "lasso_selection_schedule.py", "lasso_transfer.py", "lasso_transfer_session.py", "lasso_effort.py", "lasso_witness.py", "lasso_batch.cpp", "sat_search.py",
              "merge_checkpoints.py", "verify.cpp", "proof_cnf.py", "lasso_checkpoint.py")
 
 
@@ -109,7 +110,7 @@ def snapshot(out, enc, masks, target, branch, witnesses, stats, imported):
                 progress=stats,
                 commit=os.environ.get("GITHUB_SHA"))
     names = ["formula.cnf", "selectors.json", "masks.json", "witnesses.jsonl"]
-    for optional in ("masks.txt", "cpp-batches.jsonl", "last-policy.tsv",
+    for optional in ("masks.txt", "phase-policy.tsv", "cpp-batches.jsonl", "last-policy.tsv",
                      "exhaustive-verifier.log"):
         if (out / optional).is_file():
             names.append(optional)
@@ -149,7 +150,8 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
         allow_audited_migration=False, checkpoint_seconds=5.0,
         witness_selection="first", hybrid_every=8,
         transfer_opposite_bundle=None, budget_scope="total",
-        transfer_session_cache=None, best_interval=0, quality_binary=None):
+        transfer_session_cache=None, best_interval=0, quality_binary=None,
+        phase_policy=None):
     validate_selection(witness_selection, walker, hybrid_every)
     if type(best_interval) is not int or not 0 <= best_interval <= 1024:
         raise ValueError("best_interval must be integer 0..1024")
@@ -157,6 +159,8 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
         raise ValueError("best-policy tracking requires C++ walker and compiled quality binary")
     if not best_interval and quality_binary is not None:
         raise ValueError("quality binary given without best tracking")
+    if phase_policy is not None and not Path(phase_policy).is_file():
+        raise ValueError("phase policy must be an existing complete legal policy file")
     if budget_scope not in ("total", "search") or type(budget_scope) is not str:
         raise ValueError("budget_scope must be total or search")
     transfer_requested = transfer_opposite_bundle is not None or transfer_session_cache is not None
@@ -183,6 +187,8 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
             raise ValueError("cpp walker requires a compiled --batch-binary")
         batch_binary = Path(batch_binary).resolve()
     independent = selector_rows(n, target)
+    if phase_policy is not None:
+        read_phase_policy(Path(phase_policy), SimpleNamespace(n=n, t=target, rows=independent))
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
     bundle = output
@@ -196,6 +202,19 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
     if enc.rows != independent:
         enc.close()
         raise RuntimeError("synthesizer and independent selector mapping disagree")
+    phase_info = None
+    if phase_policy is not None:
+        input_path = Path(phase_policy).resolve(strict=True)
+        original_hash = sha(input_path)
+        destination = output / "phase-policy.tsv"
+        shutil.copyfile(input_path, destination)
+        if sha(input_path) != original_hash or sha(destination) != original_hash:
+            raise ValueError("phase policy changed while capturing preferences")
+        phase_info = apply_phase_policy(destination, enc)
+        phase_info["file"] = "phase-policy.tsv"
+        phase_info["semantics"] = "branching phases only, no clauses or assumptions"
+        phase_info["branch"] = branch
+        phase_info["backend"] = backend
     (output / "selectors.json").write_text(json.dumps(
         [[*key, choices] for key, choices in independent.items()]) + "\n")
     (output / "masks.json").write_text(json.dumps(masks) + "\n")
@@ -208,6 +227,7 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                  construction_seconds=base_seconds, budget_seconds=seconds,
                  max_new_per_round=max_new_per_round, witness_selection=witness_selection,
                  hybrid_every=hybrid_every, selection_model_offset=0,
+                  phase_preference=phase_info,
                  selected_mode_counts={"first": 0, "short-diverse": 0},
                  selected_mode_clauses={"first": 0, "short-diverse": 0},
                  selected_mode_literals={"first": 0, "short-diverse": 0},
@@ -517,6 +537,8 @@ def main():
     p.add_argument("--best-interval", type=int, default=0,
                    help="0 disables; 1 scores all raw SAT models, N>1 periodically samples")
     p.add_argument("--quality-binary", type=Path, help="separate untrusted C++ frozen-suite scorer")
+    p.add_argument("--phase-policy", type=Path,
+                   help="complete legal global policy used only as solver polarity hints")
     p.add_argument("--max-new-per-round", type=int, default=96,
                    help="maximum newly checked witness clauses per SAT assignment")
     p.add_argument("--witness-selection", choices=("first", "short-diverse", "hybrid"), default="first",
@@ -555,7 +577,8 @@ def main():
                max_new_per_round=a.max_new_per_round,
                 witness_selection=a.witness_selection, hybrid_every=a.hybrid_every,
                 transfer_opposite_bundle=a.transfer_opposite_bundle, budget_scope=a.budget_scope,
-                 best_interval=a.best_interval, quality_binary=a.quality_binary)
+                 best_interval=a.best_interval, quality_binary=a.quality_binary,
+                 phase_policy=a.phase_policy)
     print(json.dumps(data, indent=2, sort_keys=True))
 
 
