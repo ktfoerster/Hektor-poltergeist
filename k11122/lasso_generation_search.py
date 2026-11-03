@@ -451,6 +451,7 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
         "policy_seconds", "checkpoint_total_seconds", "progress_seconds",
         "independent_replay_seconds"))
     (bundle / "audit.json").write_text(json.dumps(result, indent=2) + "\n")
+    stats["total_wall_seconds"] = time.monotonic() - total_started
     (bundle / "summary.json").write_text(json.dumps(stats, indent=2, sort_keys=True) + "\n")
     (output / "clauses.body").unlink(missing_ok=True)
     return stats

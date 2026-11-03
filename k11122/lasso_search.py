@@ -19,6 +19,7 @@ from lasso_witness import (sha, selector_rows, trace, checked_clause, audit)
 from lasso_selection_schedule import (validate_selection, effective_selection,
                                       inherited_model_offset)
 from lasso_transfer import transfer
+from lasso_effort import initialize as initialize_effort, observe as observe_effort
 from lasso_journal import Journal, check_committed, iter_committed_lines, lock_directory
 
 
@@ -65,7 +66,7 @@ def checked_policy(payload, reference_rows):
 
 
 def source_hashes():
-    names = ("lasso_search.py", "lasso_selection_schedule.py", "lasso_transfer.py", "lasso_witness.py", "lasso_batch.cpp", "lasso_journal.py", "lasso_checkpoint.py", "sat_search.py",
+    names = ("lasso_search.py", "lasso_selection_schedule.py", "lasso_transfer.py", "lasso_effort.py", "lasso_witness.py", "lasso_batch.cpp", "lasso_journal.py", "lasso_checkpoint.py", "sat_search.py",
              "merge_checkpoints.py", "verify.cpp", "proof_cnf.py")
     return {name: sha(Path(__file__).with_name(name)) for name in names}
 
@@ -127,8 +128,10 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
         imported=None, max_new_per_round=96, walker="python", batch_binary=None,
         allow_audited_migration=False, checkpoint_mode="journal", checkpoint_seconds=5.0,
         witness_selection="first", hybrid_every=8,
-        transfer_opposite_bundle=None):
+        transfer_opposite_bundle=None, budget_scope="total"):
     validate_selection(witness_selection, walker, hybrid_every)
+    if budget_scope not in ("total", "search") or type(budget_scope) is not str:
+        raise ValueError("budget_scope must be total or search; search excludes initial setup")
     if transfer_opposite_bundle is not None and (resume is not None or type(branch) is not int or branch not in (0, 1)):
         raise ValueError("opposite-branch transfer requires a single destination first-hop branch and no simultaneous resume")
     if type(max_new_per_round) is not int or max_new_per_round < 1:
@@ -141,7 +144,8 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                               walker=walker, batch_binary=batch_binary,
                               allow_audited_migration=allow_audited_migration,
                               checkpoint_seconds=checkpoint_seconds, witness_selection=witness_selection,
-                               hybrid_every=hybrid_every, transfer_opposite_bundle=transfer_opposite_bundle)
+                               hybrid_every=hybrid_every, transfer_opposite_bundle=transfer_opposite_bundle,
+                               budget_scope=budget_scope)
     if not 0.0 < seconds <= 180:
         raise ValueError("bounded run must be 0..180 seconds")
     if (not isinstance(masks, list) or not masks or
@@ -162,6 +166,7 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
     # Nonblocking lock; never kill or replace another run's local owner.
     owner = lock_directory(output)
     started = time.monotonic()
+    total_started = started
     construction = time.monotonic()
     enc = CapturedPolicy(n, target, output / "clauses.body", seed, backend)
     partition(enc, branch)
@@ -185,6 +190,7 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                  selected_mode_literals={"first": 0, "short-diverse": 0},
                  clause_literals_total=0, clause_literals_min=None, clause_literals_max=0,
                  transfer_seconds=0.0, transfer_clauses=0, transfer_branch_vacuous=0,
+                 budget_scope=budget_scope, preparation_seconds=0.0,
                  completed_scans=0, interrupted_scans=0, walker=walker,
                  batch_invocations=0, batch_cpp_seconds=0.0,
                  batch_python_check_seconds=0.0,
@@ -193,6 +199,7 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                  checkpoint_count=0, final_export_seconds=0.0,
                  recovered_uncommitted_body_bytes=0,
                  recovered_uncommitted_witness_bytes=0)
+    observed_worker = initialize_effort(stats)
     learned = set()
     if imported is None:
         imported = {}
@@ -276,6 +283,9 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                     witness_count += 1
                     stats["inherited_witnesses"] += 1
             save_checkpoint(records)
+            stats["preparation_seconds"] = time.monotonic() - total_started
+            if budget_scope == "search":
+                started = time.monotonic()
             iteration = 0
             while time.monotonic() - started < seconds:
                 iteration += 1
@@ -285,6 +295,7 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                                                   output / f"solve-{iteration:05}.json",
                                                   conflict_budget=40000)
                 stats["solver_seconds"] += time.monotonic() - before
+                observed_worker = observe_effort(stats, observed_worker, payload)
                 if outcome is None:
                     # Retain the worker's learned clauses across bounded slices.
                     if iteration % 5 == 0:
@@ -444,6 +455,7 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
         owner.close()
     result = audit(output)
     (output / "audit.json").write_text(json.dumps(result, indent=2) + "\n")
+    stats["total_wall_seconds"] = time.monotonic() - total_started
     (output / "summary.json").write_text(json.dumps(stats, indent=2, sort_keys=True) + "\n")
     if checkpoint_mode == "full":
         (output / "clauses.body").unlink(missing_ok=True)
@@ -459,6 +471,8 @@ def main():
     p.add_argument("--branch", type=int, choices=(-1, 0, 1), default=0)
     p.add_argument("--root", type=Path, default=LATEST)
     p.add_argument("--seconds", type=float, default=60)
+    p.add_argument("--budget-scope", choices=("total", "search"), default="total",
+                   help="total: include preparation; search: start budget after audited setup")
     p.add_argument("--resume", type=Path)
     p.add_argument("--transfer-opposite-bundle", type=Path,
                    help="audit and import necessary clauses from the other first-hop branch")
@@ -498,7 +512,7 @@ def main():
                checkpoint_seconds=a.checkpoint_seconds,
                max_new_per_round=a.max_new_per_round,
                 witness_selection=a.witness_selection, hybrid_every=a.hybrid_every,
-                transfer_opposite_bundle=a.transfer_opposite_bundle)
+                transfer_opposite_bundle=a.transfer_opposite_bundle, budget_scope=a.budget_scope)
     print(json.dumps(data, indent=2, sort_keys=True))
 
 

@@ -1,0 +1,87 @@
+name: K11122 equal-active-time certified-transfer comparison
+on:
+  workflow_dispatch:
+  push:
+    branches: ['research/k11122-amortized-transfer-20261103']
+    paths:
+      - 'k11122/lasso_search.py'
+      - 'k11122/lasso_generation_search.py'
+      - 'k11122/lasso_effort.py'
+      - 'k11122/lasso_policy_quality.py'
+      - 'k11122/amortization_benchmark.py'
+      - 'k11122/test_lasso_amortization.py'
+      - '.github/workflows/k11122-amortization.yml'
+permissions:
+  contents: read
+concurrency:
+  group: k11122-amortized-transfer
+  cancel-in-progress: false
+jobs:
+  pilot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pin dependencies and run all old/new correctness tests
+        run: |
+          mkdir -p evidence/bin evidence/source
+          python -m pip install python-sat==1.8.dev24 z3-solver==4.13.3.0
+          python -m pip freeze > evidence/dependencies.txt
+          python -m unittest discover -s k11122 -p 'test_*.py' -v > evidence/tests.log 2>&1 || { tail -n 140 evidence/tests.log; exit 1; }
+          tail -n 12 evidence/tests.log
+      - name: Rebuild unchanged exhaustive verifier and bounded scanner
+        run: |
+          g++ -O3 -std=c++17 -Wall -Wextra -Werror k11122/lasso_batch.cpp -o evidence/bin/lasso_batch
+          g++ -O3 -std=c++17 k11122/verify.cpp -o evidence/bin/verify
+          sha256sum evidence/bin/lasso_batch evidence/bin/verify k11122/lasso_batch.cpp k11122/verify.cpp > evidence/binary-hashes.txt
+          python k11122/merge_checkpoints.py --target 0 --output evidence/merged-t0.json
+          python k11122/merge_checkpoints.py --target 3 --output evidence/merged-t3.json
+          python - <<'PY'
+          import json
+          assert len(json.load(open('evidence/merged-t0.json'))['masks']) == 2701
+          assert len(json.load(open('evidence/merged-t3.json'))['masks']) == 2181
+          PY
+      - name: Three-seed matched search with separately billed independent import
+        run: |
+          python k11122/amortization_benchmark.py --output evidence/benchmark --scanner "$PWD/evidence/bin/lasso_batch" --verifier "$PWD/evidence/bin/verify" --source-seconds 12 --search-seconds 12 --target3-seconds 8 --seeds 20261103,20261104,20261105 > evidence/benchmark-stdout.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('evidence/benchmark/amortized-comparison.json').read_text())
+          for target,seeds in ((0,[20261103,20261104,20261105]),(3,[20261103])):
+              for seed in seeds:
+                  cold=r[f't{target}-{seed}-cold'];warm=r[f't{target}-{seed}-warm']
+                  assert cold['budget_scope']==warm['budget_scope']=='search'
+                  assert cold['search_budget_seconds']==warm['search_budget_seconds']
+                  assert cold['inherited_witnesses']==0
+                  assert warm['inherited_witnesses']>0
+                  assert warm['transfer_seconds']>0
+                  assert cold['target']==warm['target']==target
+                  assert cold['branch']==warm['branch']==1
+                  assert cold['seed']==warm['seed']==seed
+                  assert warm['source_manifest_sha256'] is not None
+                  for x in (cold,warm):
+                      assert x['last_raw_policy_quality']['residuals']==(2701 if target==0 else 2181)
+                      assert x['solver_effort_samples']>0
+                      assert x['total_elapsed_seconds']>=x['preparation_seconds']
+                      assert x['finite_suite_candidates']>=0
+                      assert x['status'] in ('UNKNOWN','UNSAT_UNCERTIFIED',
+                              'FINITE_SUITE_SAT_UNVERIFIED','FINITE_SAT_GLOBALLY_INVALID',
+                              'VERIFIED_POSITIVE_ONE_ORBIT')
+          print(json.dumps({k:v for k,v in r.items() if k.endswith('-summary')},sort_keys=True))
+          PY
+      - name: Preserve all exact CNF/checkpoint source, checksums, seeds and logs
+        if: always()
+        run: |
+          cp k11122/lasso_search.py k11122/lasso_generation_search.py k11122/lasso_transfer.py k11122/lasso_effort.py k11122/lasso_policy_quality.py k11122/amortization_benchmark.py k11122/test_lasso_amortization.py .github/workflows/k11122-amortization.yml evidence/source/
+          echo "$GITHUB_SHA" > evidence/commit.txt
+          find evidence -type f ! -name SHA256SUMS ! -name .owner.lock -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k11122-amortized-evidence
+          path: evidence/
+          retention-days: 30
