@@ -1,0 +1,130 @@
+name: K11122 independently replayed best-observed routing policy pilot
+on:
+  workflow_dispatch:
+  push:
+    branches: ['research/k11122-best-observed-20261103']
+    paths:
+      - 'k11122/lasso_best.py'
+      - 'k11122/lasso_quality.cpp'
+      - 'k11122/lasso_search.py'
+      - 'k11122/lasso_generation_search.py'
+      - 'k11122/lasso_checkpoint.py'
+      - 'k11122/amortization_benchmark.py'
+      - 'k11122/session_cache_benchmark.py'
+      - 'k11122/test_lasso_best.py'
+      - '.github/workflows/k11122-best-observed.yml'
+permissions:
+  contents: read
+concurrency:
+  group: k11122-best-observed-policy
+  cancel-in-progress: false
+jobs:
+  pilot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned solver and run all old/new semantic tests
+        run: |
+          mkdir -p evidence/bin evidence/source
+          python -m pip install python-sat==1.8.dev24 z3-solver==4.13.3.0
+          python -m pip freeze > evidence/dependencies.txt
+          python -m unittest discover -s k11122 -p 'test_*.py' -v > evidence/tests.log 2>&1 || { tail -n 180 evidence/tests.log; exit 1; }
+          tail -n 14 evidence/tests.log
+      - name: Strictly compile untrusted scorer/scanner and unchanged full verifier
+        run: |
+          g++ -O3 -std=c++17 -Wall -Wextra -Werror k11122/lasso_quality.cpp -o evidence/bin/lasso_quality
+          g++ -O3 -std=c++17 -Wall -Wextra -Werror k11122/lasso_batch.cpp -o evidence/bin/lasso_batch
+          g++ -O3 -std=c++17 k11122/verify.cpp -o evidence/bin/verify
+          sha256sum evidence/bin/lasso_quality evidence/bin/lasso_batch evidence/bin/verify k11122/lasso_quality.cpp k11122/lasso_batch.cpp k11122/verify.cpp > evidence/binary-hashes.txt
+          python k11122/merge_checkpoints.py --target 0 --output evidence/frozen-t0.json
+          python k11122/merge_checkpoints.py --target 3 --output evidence/frozen-t3.json
+          python - <<'PY'
+          import json,pathlib
+          for t,n in ((0,2701),(3,2181)):
+              masks=json.loads((pathlib.Path('evidence')/f'frozen-t{t}.json').read_text())['masks']
+              assert len(masks)==n
+              (pathlib.Path('evidence')/f'masks-t{t}.txt').write_text(''.join(f'{m}\n' for m in masks))
+          PY
+      - name: Differentially score two complete invalid seven-node phase policies
+        run: |
+          python - <<'PY'
+          import json,pathlib,subprocess,sys
+          sys.path.insert(0,'k11122')
+          from lasso_best import independent_quality
+          from lasso_policy_quality import read_policy
+          from lasso_witness import selector_rows
+          evidence=pathlib.Path('evidence')
+          for target in (0,3):
+              policy=pathlib.Path(f'k11122/phase-seeds/t{target}-b0.tsv')
+              masks=json.loads((evidence/f'frozen-t{target}.json').read_text())['masks']
+              scorer=json.loads(subprocess.check_output(
+                  [str(evidence/'bin/lasso_quality'),str(policy),str(evidence/f'masks-t{target}.txt')]))
+              independently=independent_quality(policy,7,target,masks)
+              for k,v in independently.items():
+                  assert scorer[k]==v,(target,k,scorer[k],v)
+              (evidence/f'fixed-quality-t{target}.json').write_text(json.dumps(independently,sort_keys=True,indent=2)+'\n')
+          PY
+      - name: Three-seed same-process cached versus fully audited transfer, tracking every 16th raw SAT assignment
+        run: |
+          /usr/bin/time -v -o evidence/benchmark-wall-time.txt python k11122/session_cache_benchmark.py --output evidence/benchmark --scanner "$PWD/evidence/bin/lasso_batch" --quality-binary "$PWD/evidence/bin/lasso_quality" --best-interval 16 --verifier "$PWD/evidence/bin/verify" --source-seconds 9 --search-seconds 10 --target3-seconds 7 --seeds 20261103,20261104,20261105 > evidence/benchmark-stdout.json
+          python - <<'PY'
+          import json,pathlib,sys
+          sys.path.insert(0,'k11122')
+          from lasso_best import independently_check_best
+          from lasso_witness import audit
+          root=pathlib.Path('evidence/benchmark')
+          all_results=json.loads((root/'session-cache-comparison.json').read_text())
+          summary={}
+          for t,seeds in ((0,[20261103,20261104,20261105]),(3,[20261103])):
+              for seed in seeds:
+                  for mode in ('uncached','cached'):
+                      name=f't{t}-{seed}-{mode}'
+                      metric=all_results[name]
+                      folder=root/name
+                      assert audit(folder)['status']=='CHECKED'
+                      checked=independently_check_best(folder)
+                      assert checked['status']=='INDEPENDENTLY_REPLAYED_HISTORICAL_BEST'
+                      assert metric['best_raw_policy_quality']==checked
+                      assert metric['quality_scored_raw_models']>0
+                      assert metric['quality_improvements']>0
+                      assert metric['finite_suite_candidates']==0
+                      assert metric['status']=='UNKNOWN'
+                      assert metric['best_raw_policy_quality']['quality']['failing_residual_masks']>=0
+                      assert metric['best_raw_policy_quality']['quality']['failed_connected_sources']>=0
+                  cold=all_results[f't{t}-{seed}-uncached']
+                  cached=all_results[f't{t}-{seed}-cached']
+                  assert cold['seed']==cached['seed']==seed
+                  assert cold['target']==cached['target']==t
+                  assert cold['search_budget_seconds']==cached['search_budget_seconds']
+                  assert cold['inherited_witnesses']==cached['inherited_witnesses']>0
+                  assert cold['source_manifest_sha256']==cached['source_manifest_sha256']
+              summary[str(t)]={
+                  mode:{
+                      'seeds':seeds,
+                      'best_failing_masks':[all_results[f't{t}-{seed}-{mode}']['best_raw_policy_quality']['quality']['failing_residual_masks'] for seed in seeds],
+                      'last_failing_masks':[all_results[f't{t}-{seed}-{mode}']['last_raw_policy_quality']['failing_residual_masks'] for seed in seeds],
+                      'raw_models':[all_results[f't{t}-{seed}-{mode}']['raw_assignments'] for seed in seeds],
+                      'quality_scored_models':[all_results[f't{t}-{seed}-{mode}']['quality_scored_raw_models'] for seed in seeds],
+                      'improvements':[all_results[f't{t}-{seed}-{mode}']['quality_improvements'] for seed in seeds],
+                      'prep_seconds':[all_results[f't{t}-{seed}-{mode}']['preparation_seconds'] for seed in seeds],
+                  } for mode in ('uncached','cached')}
+          summary['scope']='historical best of periodically sampled raw SAT policies, NOT SAT for terminal CNF or full-graph verified'
+          (pathlib.Path('evidence')/'best-quality-comparison.json').write_text(json.dumps(summary,sort_keys=True,indent=2)+'\n')
+          print(json.dumps(summary,sort_keys=True))
+          PY
+      - name: Preserve all exact CNFs, witnesses, policies and source hashes
+        if: always()
+        run: |
+          cp k11122/lasso_best.py k11122/lasso_quality.cpp k11122/lasso_search.py k11122/lasso_generation_search.py k11122/lasso_policy_quality.py k11122/lasso_transfer_session.py k11122/session_cache_benchmark.py k11122/amortization_benchmark.py k11122/test_lasso_best.py .github/workflows/k11122-best-observed.yml evidence/source/
+          echo "$GITHUB_SHA" > evidence/commit.txt
+          find evidence -type f ! -name SHA256SUMS ! -name .owner.lock -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k11122-best-observed-evidence
+          path: evidence/
+          retention-days: 30
