@@ -1,0 +1,171 @@
+{
+  "schema": 1,
+  "date": "2026-11-03",
+  "scientific_classification": "UNKNOWN for both destination orbits; no complete candidate or certified UNSAT",
+  "routing_model": "K11122, two-state, common source-injection and local transit without source-dependent routing",
+  "source_seconds_each": 7,
+  "continuation_seconds_each": 9,
+  "seed": 20261103,
+  "continuation_backend": "cadical195",
+  "continuation_witness_selection": "first",
+  "best_policy_sample_interval": 8,
+  "semantic_note": "historical raw SAT assignments on frozen suite; not final-CNF SAT or graph-positive",
+  "tested_commit": "ea7c5a4bd8e26b630f4f2b4faecfea7a59c85129",
+  "github_actions_run_id": 41624096550,
+  "artifact_id": 13224879222,
+  "artifact_size_bytes": 145222754,
+  "artifact_sha256_github": "2cd8085a86db91b473975e6ac04602ffbcae6b0279057cc33a383edd5c244400",
+  "tests_passed": 97,
+  "independent_full_cnf_audits_passed": true,
+  "postdownload_zip_check": "not independently performed; connector ingress limit",
+  "cells": {
+    "t0-b0": {
+      "target": 0,
+      "branch": 0,
+      "masks": 2701,
+      "source_witnesses": {
+        "cadical195": 48768,
+        "maplechrono": 35232
+      },
+      "duplicates": 1719,
+      "pooled": 82281,
+      "first_model_divergence": 2,
+      "models": {
+        "cadical": 579,
+        "alternative": 591,
+        "pooled": 604
+      },
+      "best_failing_masks": {
+        "cadical": 651,
+        "alternative": 631,
+        "pooled": 531
+      },
+      "best_failed_sources": {
+        "cadical": 2070,
+        "alternative": 1969,
+        "pooled": 1542
+      },
+      "preparation_seconds": {
+        "cadical": 2.564979677,
+        "alternative": 1.912914498,
+        "pooled": 4.437957393
+      },
+      "active_seconds": {
+        "cadical": 9.003897938,
+        "alternative": 9.006748829,
+        "pooled": 9.003351705
+      }
+    },
+    "t0-b1": {
+      "target": 0,
+      "branch": 1,
+      "masks": 2701,
+      "source_witnesses": {
+        "cadical195": 46464,
+        "maplechrono": 32256
+      },
+      "duplicates": 1453,
+      "pooled": 77267,
+      "first_model_divergence": 1,
+      "models": {
+        "cadical": 613,
+        "alternative": 656,
+        "pooled": 592
+      },
+      "best_failing_masks": {
+        "cadical": 534,
+        "alternative": 709,
+        "pooled": 629
+      },
+      "best_failed_sources": {
+        "cadical": 1651,
+        "alternative": 2261,
+        "pooled": 1803
+      },
+      "preparation_seconds": {
+        "cadical": 2.510135303,
+        "alternative": 1.708843267,
+        "pooled": 4.110248931
+      },
+      "active_seconds": {
+        "cadical": 9.002546043,
+        "alternative": 9.002338666,
+        "pooled": 9.004073469
+      }
+    },
+    "t3-b0": {
+      "target": 3,
+      "branch": 0,
+      "masks": 2181,
+      "source_witnesses": {
+        "cadical195": 47712,
+        "maplechrono": 27648
+      },
+      "duplicates": 1638,
+      "pooled": 73722,
+      "first_model_divergence": 2,
+      "models": {
+        "cadical": 621,
+        "alternative": 661,
+        "pooled": 608
+      },
+      "best_failing_masks": {
+        "cadical": 440,
+        "alternative": 491,
+        "pooled": 427
+      },
+      "best_failed_sources": {
+        "cadical": 1254,
+        "alternative": 1511,
+        "pooled": 1219
+      },
+      "preparation_seconds": {
+        "cadical": 2.434309157,
+        "alternative": 1.427929558,
+        "pooled": 3.791463039
+      },
+      "active_seconds": {
+        "cadical": 9.001411861,
+        "alternative": 9.001531315,
+        "pooled": 9.001550312
+      }
+    },
+    "t3-b1": {
+      "target": 3,
+      "branch": 1,
+      "masks": 2181,
+      "source_witnesses": {
+        "cadical195": 44832,
+        "maplechrono": 29280
+      },
+      "duplicates": 1299,
+      "pooled": 72813,
+      "first_model_divergence": 1,
+      "models": {
+        "cadical": 635,
+        "alternative": 646,
+        "pooled": 638
+      },
+      "best_failing_masks": {
+        "cadical": 400,
+        "alternative": 447,
+        "pooled": 339
+      },
+      "best_failed_sources": {
+        "cadical": 1125,
+        "alternative": 1449,
+        "pooled": 921
+      },
+      "preparation_seconds": {
+        "cadical": 2.282570943,
+        "alternative": 1.510895631,
+        "pooled": 3.718063496
+      },
+      "active_seconds": {
+        "cadical": 9.000146064,
+        "alternative": 9.001544556,
+        "pooled": 9.001626661
+      }
+    }
+  }
+}
