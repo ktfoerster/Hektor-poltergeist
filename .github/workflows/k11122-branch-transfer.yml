@@ -11,7 +11,6 @@ on:
       - '.github/workflows/k11122-branch-transfer.yml'
 permissions:
   contents: read
-  actions: read
 concurrency:
   group: k11122-opposite-branch-pilot
   cancel-in-progress: false
@@ -43,39 +42,33 @@ jobs:
           for t,n in ((0,2701),(3,2181)):
               assert len(json.load(open(f'evidence/merged-t{t}.json'))['masks'])==n
           PY
-      - name: Retrieve prior full certificate bundles from immutable hosted run
-        uses: actions/download-artifact@v4
-        with:
-          name: k11122-hybrid-evidence
-          run-id: 41550722195
-          repository: ktfoerster/Hektor-poltergeist
-          github-token: \${{ github.token }}
-          path: incoming
-      - name: Independently audit original source CNFs before import
+      - name: Build fresh bounded branch-0 source checkpoints in this exact run
         run: |
-          python k11122/lasso_search.py audit --output incoming/first > evidence/source-first-audit.json
-          python k11122/lasso_search.py audit --output incoming/target3 > evidence/source-target3-audit.json
+          python k11122/lasso_search.py run --target 0 --branch 0 --seconds 18 --seed 20261103 --walker cpp --batch-binary "$PWD/evidence/bin/lasso_batch" --verify "$PWD/evidence/bin/verify" --witness-selection hybrid --hybrid-every 8 --checkpoint-mode journal --output evidence/first > evidence/source-first-stdout.json
+          python k11122/lasso_search.py run --target 3 --branch 0 --seconds 10 --seed 20261103 --walker cpp --batch-binary "$PWD/evidence/bin/lasso_batch" --verify "$PWD/evidence/bin/verify" --witness-selection hybrid --hybrid-every 8 --checkpoint-mode journal --output evidence/target3 > evidence/source-target3-stdout.json
+      - name: Independently audit source CNFs and exact branch/mask domains
+        run: |
+          python k11122/lasso_search.py audit --output evidence/first > evidence/source-first-audit.json
+          python k11122/lasso_search.py audit --output evidence/target3 > evidence/source-target3-audit.json
           python - <<'PY'
           import json
-          for target,folder,clauses,h in (
-              (0,'first',84576,'0846882c9a5377bd5a8d051655c8e9846bcacb1abab492120a9712348ccbe971'),
-              (3,'target3',40608,'0d2b371cbb89dac43065d38a5ea4a3308d92acc98b7b81184ae9a657bb532eba')):
-              m=json.load(open(f'incoming/{folder}/manifest.json'))
+          for target,folder,expected in ((0,'first',2701),(3,'target3',2181)):
+              m=json.load(open(f'evidence/{folder}/manifest.json'))
               a=json.load(open(f'evidence/source-{folder}-audit.json'))
-              assert (m['target'],m['branch'],m['witnesses'])==(target,0,clauses)
-              assert m['masks']==(2701 if target==0 else 2181)
-              assert m['sha256']['formula.cnf']==a['cnf_sha256']==h
+              assert (m['target'],m['branch'],m['masks'])==(target,0,expected)
+              assert m['witnesses']>0 and a['witnesses']==m['witnesses']
+              assert m['sha256']['formula.cnf']==a['cnf_sha256']
               assert a['status']=='CHECKED'
           PY
       - name: Equal-total-budget target-0 branch-1 cold and transfer pilot
         run: |
           /usr/bin/time -v -o evidence/cold-t0-time.txt python k11122/lasso_search.py run --target 0 --branch 1 --seconds 25 --seed 20261103 --walker cpp --batch-binary "$PWD/evidence/bin/lasso_batch" --verify "$PWD/evidence/bin/verify" --witness-selection hybrid --hybrid-every 8 --checkpoint-mode journal --output evidence/cold-t0 > evidence/cold-t0-stdout.json
-          /usr/bin/time -v -o evidence/transfer-t0-time.txt python k11122/lasso_search.py run --target 0 --branch 1 --seconds 25 --seed 20261103 --walker cpp --batch-binary "$PWD/evidence/bin/lasso_batch" --verify "$PWD/evidence/bin/verify" --witness-selection hybrid --hybrid-every 8 --checkpoint-mode journal --transfer-opposite-bundle "$PWD/incoming/first" --allow-audited-migration --output evidence/transfer-t0 > evidence/transfer-t0-stdout.json
+          /usr/bin/time -v -o evidence/transfer-t0-time.txt python k11122/lasso_search.py run --target 0 --branch 1 --seconds 25 --seed 20261103 --walker cpp --batch-binary "$PWD/evidence/bin/lasso_batch" --verify "$PWD/evidence/bin/verify" --witness-selection hybrid --hybrid-every 8 --checkpoint-mode journal --transfer-opposite-bundle "$PWD/evidence/first" --output evidence/transfer-t0 > evidence/transfer-t0-stdout.json
           python k11122/lasso_search.py audit --output evidence/cold-t0 > evidence/cold-t0-audit.json
           python k11122/lasso_search.py audit --output evidence/transfer-t0 > evidence/transfer-t0-audit.json
       - name: Test target-3 branch-1 transfer separately
         run: |
-          python k11122/lasso_search.py run --target 3 --branch 1 --seconds 15 --seed 20261103 --walker cpp --batch-binary "$PWD/evidence/bin/lasso_batch" --verify "$PWD/evidence/bin/verify" --witness-selection hybrid --hybrid-every 8 --checkpoint-mode journal --transfer-opposite-bundle "$PWD/incoming/target3" --allow-audited-migration --output evidence/transfer-t3 > evidence/transfer-t3-stdout.json
+          python k11122/lasso_search.py run --target 3 --branch 1 --seconds 15 --seed 20261103 --walker cpp --batch-binary "$PWD/evidence/bin/lasso_batch" --verify "$PWD/evidence/bin/verify" --witness-selection hybrid --hybrid-every 8 --checkpoint-mode journal --transfer-opposite-bundle "$PWD/evidence/target3" --output evidence/transfer-t3 > evidence/transfer-t3-stdout.json
           python k11122/lasso_search.py audit --output evidence/transfer-t3 > evidence/transfer-t3-audit.json
       - name: Validate both branch-1 output CNFs and record exact comparison
         run: |
@@ -116,7 +109,7 @@ jobs:
         run: |
           cp k11122/lasso_transfer.py k11122/lasso_search.py k11122/lasso_generation_search.py k11122/lasso_witness.py k11122/test_lasso_transfer.py .github/workflows/k11122-branch-transfer.yml evidence/source/
           echo "$GITHUB_SHA" > evidence/commit.txt
-          echo 'https://github.com/ktfoerster/Hektor-poltergeist/actions/runs/41550722195/artifacts/13192195848' > evidence/input-artifact-url.txt
+          echo 'Fresh same-run branch-0 source artifacts are stored under evidence/first and evidence/target3.' > evidence/input-provenance.txt
           find evidence -type f ! -name SHA256SUMS ! -name .owner.lock -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
       - uses: actions/upload-artifact@v4
         if: always()
