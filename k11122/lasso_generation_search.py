@@ -20,6 +20,7 @@ from lasso_witness import (sha, selector_rows, trace, checked_clause, audit)
 from lasso_selection_schedule import (validate_selection, effective_selection,
                                       inherited_model_offset)
 from lasso_transfer import transfer
+from lasso_transfer_session import SessionTransfer
 from lasso_effort import initialize as initialize_effort, observe as observe_effort
 
 
@@ -66,7 +67,7 @@ def checked_policy(payload, reference_rows):
 
 
 def source_names():
-    return ("lasso_search.py", "lasso_generation_search.py", "lasso_selection_schedule.py", "lasso_transfer.py", "lasso_effort.py", "lasso_witness.py", "lasso_batch.cpp", "sat_search.py",
+    return ("lasso_search.py", "lasso_generation_search.py", "lasso_selection_schedule.py", "lasso_transfer.py", "lasso_transfer_session.py", "lasso_effort.py", "lasso_witness.py", "lasso_batch.cpp", "sat_search.py",
              "merge_checkpoints.py", "verify.cpp", "proof_cnf.py", "lasso_checkpoint.py")
 
 
@@ -146,11 +147,17 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
         imported=None, max_new_per_round=96, walker="python", batch_binary=None,
         allow_audited_migration=False, checkpoint_seconds=5.0,
         witness_selection="first", hybrid_every=8,
-        transfer_opposite_bundle=None, budget_scope="total"):
+        transfer_opposite_bundle=None, budget_scope="total",
+        transfer_session_cache=None):
     validate_selection(witness_selection, walker, hybrid_every)
     if budget_scope not in ("total", "search") or type(budget_scope) is not str:
         raise ValueError("budget_scope must be total or search")
-    if transfer_opposite_bundle is not None and (resume is not None or type(branch) is not int or branch not in (0, 1)):
+    transfer_requested = transfer_opposite_bundle is not None or transfer_session_cache is not None
+    if transfer_opposite_bundle is not None and transfer_session_cache is not None:
+        raise ValueError("choose source path OR same-process attested cache, not both")
+    if transfer_session_cache is not None and not isinstance(transfer_session_cache, SessionTransfer):
+        raise ValueError("cache must originate from independent same-process certification")
+    if transfer_requested and (resume is not None or type(branch) is not int or branch not in (0, 1)):
         raise ValueError("opposite-branch transfer requires a first-hop branch and no simultaneous resume")
     if type(max_new_per_round) is not int or max_new_per_round < 1:
         raise ValueError("max_new_per_round must be a positive integer")
@@ -222,19 +229,27 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
     witness_count = 0
     try:
         with (output / "witnesses.jsonl").open("w") as records:
-            if transfer_opposite_bundle is not None:
+            if transfer_requested:
                 started_transfer = time.monotonic()
                 def add_transferred(clause):
                     if tuple(clause) in learned:
                         raise ValueError("duplicate cross-branch clause")
                     learned.add(tuple(clause))
                     enc.add_clause(clause)
-                transfer_info = transfer(
-                    transfer_opposite_bundle, n, target, branch, masks,
-                    add_transferred, lambda item: records.write(
-                        json.dumps(item, sort_keys=True, separators=(",", ":")) + "\n"),
-                    expected_source_hashes=source_hashes(),
-                    allow_audited_migration=allow_audited_migration)
+                if transfer_session_cache is not None:
+                    transfer_info = transfer_session_cache.emit(
+                        n, target, branch, masks, add_transferred,
+                        lambda item: records.write(
+                            json.dumps(item, sort_keys=True, separators=(",", ":")) + "\n"),
+                        expected_source_hashes=source_hashes(),
+                        allow_audited_migration=allow_audited_migration)
+                else:
+                    transfer_info = transfer(
+                        transfer_opposite_bundle, n, target, branch, masks,
+                        add_transferred, lambda item: records.write(
+                            json.dumps(item, sort_keys=True, separators=(",", ":")) + "\n"),
+                        expected_source_hashes=source_hashes(),
+                        allow_audited_migration=allow_audited_migration)
                 witness_count += transfer_info["transferred"]
                 stats["inherited_witnesses"] += transfer_info["transferred"]
                 stats["transfer_clauses"] = transfer_info["transferred"]

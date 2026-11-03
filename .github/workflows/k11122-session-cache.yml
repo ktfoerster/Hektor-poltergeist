@@ -1,0 +1,90 @@
+name: K11122 same-process certified transfer cache
+on:
+  workflow_dispatch:
+  push:
+    branches: ['research/k11122-session-transfer-cache-20261103']
+    paths:
+      - 'k11122/lasso_transfer_session.py'
+      - 'k11122/lasso_search.py'
+      - 'k11122/lasso_generation_search.py'
+      - 'k11122/session_cache_benchmark.py'
+      - 'k11122/test_lasso_session_cache.py'
+      - '.github/workflows/k11122-session-cache.yml'
+permissions:
+  contents: read
+concurrency:
+  group: k11122-session-transfer-cache-pilot
+  cancel-in-progress: false
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pinned backend and complete semantic regression suite
+        run: |
+          mkdir -p evidence/bin evidence/source
+          python -m pip install python-sat==1.8.dev24 z3-solver==4.13.3.0
+          python -m pip freeze > evidence/dependencies.txt
+          python -m unittest discover -s k11122 -p 'test_*.py' -v > evidence/tests.log 2>&1 || { tail -n 150 evidence/tests.log; exit 1; }
+          tail -n 14 evidence/tests.log
+      - name: Independent C++ scanner/verifier and immutable frozen residual suites
+        run: |
+          g++ -O3 -std=c++17 -Wall -Wextra -Werror k11122/lasso_batch.cpp -o evidence/bin/lasso_batch
+          g++ -O3 -std=c++17 k11122/verify.cpp -o evidence/bin/verify
+          sha256sum evidence/bin/lasso_batch evidence/bin/verify k11122/lasso_batch.cpp k11122/verify.cpp > evidence/binary-hashes.txt
+          python k11122/merge_checkpoints.py --target 0 --output evidence/merged-t0.json
+          python k11122/merge_checkpoints.py --target 3 --output evidence/merged-t3.json
+          python - <<'PY'
+          import json
+          for target,n in ((0,2701),(3,2181)):
+              a=json.load(open(f'evidence/merged-t{target}.json'))
+              assert len(a['masks'])==n
+          PY
+      - name: Three-seed, equal-active-time full-audit versus content-addressed session cache
+        run: |
+          /usr/bin/time -v -o evidence/cache-benchmark-time.log python k11122/session_cache_benchmark.py --output evidence/cache-bench --scanner "$PWD/evidence/bin/lasso_batch" --verifier "$PWD/evidence/bin/verify" --source-seconds 10 --search-seconds 10 --target3-seconds 7 --seeds 20261103,20261104,20261105 > evidence/benchmark-stdout.json
+          python - <<'PY'
+          import json, pathlib
+          from statistics import mean
+          p=pathlib.Path('evidence/cache-bench/session-cache-comparison.json')
+          r=json.loads(p.read_text())
+          for target,seeds in ((0,[20261103,20261104,20261105]),(3,[20261103])):
+              summary=r[f't{target}-summary']
+              assert summary['research_status']=='UNKNOWN'
+              assert summary['source_initial_full_semantic_audit_seconds']>0
+              assert len(summary['cached']['seed_models'])==len(seeds)
+              assert len(summary['uncached']['seed_models'])==len(seeds)
+              for seed in seeds:
+                  uncached=r[f't{target}-{seed}-uncached']
+                  cached=r[f't{target}-{seed}-cached']
+                  assert (uncached['target'],uncached['branch'],uncached['seed'])==(target,1,seed)
+                  assert (cached['target'],cached['branch'],cached['seed'])==(target,1,seed)
+                  assert cached['budget_scope']==uncached['budget_scope']=='search'
+                  assert cached['search_budget_seconds']==uncached['search_budget_seconds']
+                  assert cached['inherited_witnesses']==uncached['inherited_witnesses']>0
+                  assert cached['source_manifest_sha256']==uncached['source_manifest_sha256']
+                  assert cached['cache_semantic_audits_this_import']==0
+                  assert cached['cache_hash_checked_files']==5
+                  assert cached['solver_effort_samples']>0 and uncached['solver_effort_samples']>0
+                  assert cached['last_raw_policy_quality']['residuals']==(2701 if target==0 else 2181)
+                  assert uncached['last_raw_policy_quality']['residuals']==(2701 if target==0 else 2181)
+                  assert cached['status'] in ('UNKNOWN','UNSAT_UNCERTIFIED','FINITE_SUITE_SAT_UNVERIFIED','FINITE_SAT_GLOBALLY_INVALID','VERIFIED_POSITIVE_ONE_ORBIT')
+                  assert uncached['status'] in ('UNKNOWN','UNSAT_UNCERTIFIED','FINITE_SUITE_SAT_UNVERIFIED','FINITE_SAT_GLOBALLY_INVALID','VERIFIED_POSITIVE_ONE_ORBIT')
+          print(json.dumps({k:v for k,v in r.items() if k.endswith('-summary')},sort_keys=True))
+          PY
+      - name: Preserve all input/source/output CNFs, certificates, hashes and comparison
+        if: always()
+        run: |
+          cp k11122/lasso_transfer_session.py k11122/lasso_transfer.py k11122/lasso_search.py k11122/lasso_generation_search.py k11122/session_cache_benchmark.py k11122/test_lasso_session_cache.py .github/workflows/k11122-session-cache.yml evidence/source/
+          echo "$GITHUB_SHA" > evidence/commit.txt
+          find evidence -type f ! -name SHA256SUMS ! -name .owner.lock -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k11122-session-cache-evidence
+          path: evidence/
+          retention-days: 30
