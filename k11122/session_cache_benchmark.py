@@ -18,10 +18,12 @@ from lasso_transfer_session import certify_session
 from lasso_policy_quality import score
 from lasso_witness import audit
 from lasso_journal import check_committed
+from lasso_best import independently_check_best
 from merge_checkpoints import LATEST, merge
 
 
-def cached_run(out, name, target, masks, seconds, seed, scanner, verifier, cache):
+def cached_run(out, name, target, masks, seconds, seed, scanner, verifier, cache,
+               best_interval=0, quality_binary=None):
     directory = out / name
     started = time.monotonic()
     stats = search_run(directory, 7, target, 1, masks, seconds,
@@ -29,12 +31,18 @@ def cached_run(out, name, target, masks, seconds, seed, scanner, verifier, cache
                        verifier=verifier, checkpoint_mode="journal",
                        witness_selection="hybrid", hybrid_every=8,
                        max_new_per_round=96,
-                       budget_scope="search", transfer_session_cache=cache)
+                       budget_scope="search", transfer_session_cache=cache,
+                        best_interval=best_interval, quality_binary=quality_binary)
     external = time.monotonic()-started
     check = audit(directory)
     committed = check_committed(directory)
     meta = json.loads((directory/"manifest.json").read_text())
     quality = score(directory)
+    best = independently_check_best(directory)
+    if best_interval and (best["status"] != "INDEPENDENTLY_REPLAYED_HISTORICAL_BEST" or
+                          stats["quality_scored_raw_models"] <= 0 or
+                          best["quality"] != stats["best_observed_raw_quality"]):
+        raise RuntimeError("independent best policy replay disagrees with recorded C++ ranking")
     info = meta["imported"]["opposite_branch_certificates"]
     if (check["status"]!="CHECKED" or
             committed["verified_witnesses"]!=meta["witnesses"] or
@@ -67,6 +75,10 @@ def cached_run(out, name, target, masks, seconds, seed, scanner, verifier, cache
         finite_suite_candidates=stats["finite_suite_candidates"],
         status=stats["status"],cnf_sha256=check["cnf_sha256"],
         last_raw_policy_quality=quality,
+        best_raw_policy_quality=best,
+        quality_scored_raw_models=stats["quality_scored_raw_models"],
+        quality_improvements=stats["quality_improvements"],
+        quality_sampling_seconds=stats["quality_sampling_seconds"],
         source_manifest_sha256=info["source_manifest_sha256"],
         cache_semantic_audits_this_import=0,
         cache_hash_checked_files=info["cache_hash_checked_files"])
@@ -85,6 +97,8 @@ def main():
     p.add_argument("--search-seconds",type=float,default=10)
     p.add_argument("--target3-seconds",type=float,default=7)
     p.add_argument("--seeds",default="20261103,20261104,20261105")
+    p.add_argument("--best-interval",type=int,default=0)
+    p.add_argument("--quality-binary",type=Path)
     a=p.parse_args()
     seeds=[int(x) for x in a.seeds.split(",")]
     if not seeds or len(seeds)>5 or len(set(seeds))!=len(seeds):
@@ -92,12 +106,16 @@ def main():
     if (not 0<a.source_seconds<=60 or not 0<a.search_seconds<=60 or
             not 0<a.target3_seconds<=40):
         p.error("finite bounded budgets required")
+    if (type(a.best_interval) is not int or not 0 <= a.best_interval <= 1024 or
+            (a.best_interval>0 and a.quality_binary is None)):
+        p.error("enable tracking with --best-interval N and --quality-binary")
     root=a.output.resolve()
     if root.exists():
         p.error("use a fresh output directory")
     root.mkdir(parents=True)
     scanner=a.scanner.resolve(strict=True)
     verifier=a.verifier.resolve(strict=True)
+    quality_binary=a.quality_binary.resolve(strict=True) if a.best_interval else None
     all_results={}
     caches={}
     mask_families={}
@@ -133,11 +151,13 @@ def main():
                 if label=="uncached":
                     result=run_one(
                         root,name,target,1,seconds,seed,scanner,verifier,
-                        transfer=root/f"source-t{target}",search_budget=True)
+                        transfer=root/f"source-t{target}",search_budget=True,
+                         best_interval=a.best_interval,quality_binary=quality_binary)
                 else:
                     result=cached_run(
                         root,name,target,mask_families[target],seconds,seed,
-                        scanner,verifier,caches[target])
+                        scanner,verifier,caches[target],
+                         best_interval=a.best_interval,quality_binary=quality_binary)
                 all_results[name]=result
                 if label=="cached":
                     cold=all_results[f"t{target}-{seed}-uncached"]
@@ -164,6 +184,16 @@ def main():
                     x["last_raw_policy_quality"]["failing_residual_masks"]
                     for x in data
                     if x["last_raw_policy_quality"]["status"]!="NO_RAW_POLICY"),
+                "best_raw_policy_failure_masks": [
+                    x["best_raw_policy_quality"]["quality"]["failing_residual_masks"]
+                    if x["best_raw_policy_quality"]["status"]=="INDEPENDENTLY_REPLAYED_HISTORICAL_BEST"
+                    else None for x in data],
+                "best_raw_policy_failure_sources": [
+                    x["best_raw_policy_quality"]["quality"]["failed_connected_sources"]
+                    if x["best_raw_policy_quality"]["status"]=="INDEPENDENTLY_REPLAYED_HISTORICAL_BEST"
+                    else None for x in data],
+                "scored_raw_policies": [x["quality_scored_raw_models"] for x in data],
+                "best_policy_improvements": [x["quality_improvements"] for x in data],
                 "solver_effort_sampled_conflicts":[
                     x["observed_solver_effort"]["conflicts"] for x in data],
             }
@@ -176,11 +206,12 @@ def main():
                 comparisons["uncached"]["sum_preparation_seconds"] -
                 comparisons["cached"]["sum_preparation_seconds"] -
                 setup_times[target],
+            best_policy_sample_interval=a.best_interval,
             active_search_budget_seconds_each=(a.search_seconds if target==0
                                                else a.target3_seconds),
             research_status="UNKNOWN",
             caveat="Session-only cache, not a portable proof; active budgets equal. "
-                   "Last raw policy is not best-so-far.",
+                   "Best historical raw policy is independently replayed but is not a solution of the terminal CNF.",
         )
     all_results["source_certifications"]={
         str(k):{"seconds":v,"cached_clauses":len(caches[k].entries)}

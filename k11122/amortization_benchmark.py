@@ -14,6 +14,7 @@ import sys
 import time
 
 from lasso_journal import check_committed
+from lasso_best import independently_check_best
 from lasso_policy_quality import score
 from lasso_witness import audit, sha
 
@@ -25,7 +26,8 @@ def write_json(path, obj):
 
 
 def run_one(root, name, target, branch, seconds, seed, scanner, verifier,
-            transfer=None, search_budget=False):
+            transfer=None, search_budget=False,
+            best_interval=0, quality_binary=None):
     path = root / name
     args = [sys.executable, str(HERE / "lasso_search.py"), "run",
             "--target", str(target), "--branch", str(branch),
@@ -34,6 +36,8 @@ def run_one(root, name, target, branch, seconds, seed, scanner, verifier,
             "--verify", str(verifier), "--witness-selection", "hybrid",
             "--hybrid-every", "8", "--max-new-per-round", "96",
             "--checkpoint-mode", "journal", "--output", str(path)]
+    if best_interval:
+        args += ["--best-interval", str(best_interval), "--quality-binary", str(quality_binary)]
     if search_budget:
         args += ["--budget-scope", "search"]
     if transfer is not None:
@@ -58,6 +62,11 @@ def run_one(root, name, target, branch, seconds, seed, scanner, verifier,
     meta = json.loads((path / "manifest.json").read_text())
     stats = json.loads((path / "summary.json").read_text())
     quality = score(path)
+    best = independently_check_best(path)
+    if best_interval and (best["status"] != "INDEPENDENTLY_REPLAYED_HISTORICAL_BEST" or
+                          stats["quality_scored_raw_models"] <= 0 or
+                          best["quality"] != stats["best_observed_raw_quality"]):
+        raise RuntimeError("independently replayed best raw policy mismatch")
     write_json(root / (name + "-audit.json"), full_audit)
     write_json(root / (name + "-quality.json"), quality)
     if (full_audit["status"] != "CHECKED" or
@@ -113,6 +122,10 @@ def run_one(root, name, target, branch, seconds, seed, scanner, verifier,
         "status": stats["status"],
         "cnf_sha256": full_audit["cnf_sha256"],
         "last_raw_policy_quality": quality,
+        "best_raw_policy_quality": best,
+        "quality_scored_raw_models": stats["quality_scored_raw_models"],
+        "quality_improvements": stats["quality_improvements"],
+        "quality_sampling_seconds": stats["quality_sampling_seconds"],
         "source_manifest_sha256": (info["source_manifest_sha256"] if info else None)
     }
     write_json(root / (name + "-metrics.json"), result)

@@ -22,6 +22,7 @@ from lasso_selection_schedule import (validate_selection, effective_selection,
 from lasso_transfer import transfer
 from lasso_transfer_session import SessionTransfer
 from lasso_effort import initialize as initialize_effort, observe as observe_effort
+from lasso_best import BestObserved, independently_check_best
 
 
 class CapturedPolicy(BooleanEncoding):
@@ -67,7 +68,7 @@ def checked_policy(payload, reference_rows):
 
 
 def source_names():
-    return ("lasso_search.py", "lasso_generation_search.py", "lasso_selection_schedule.py", "lasso_transfer.py", "lasso_transfer_session.py", "lasso_effort.py", "lasso_witness.py", "lasso_batch.cpp", "sat_search.py",
+    return ("lasso_search.py", "lasso_generation_search.py", "lasso_best.py", "lasso_quality.cpp", "lasso_policy_quality.py", "lasso_selection_schedule.py", "lasso_transfer.py", "lasso_transfer_session.py", "lasso_effort.py", "lasso_witness.py", "lasso_batch.cpp", "sat_search.py",
              "merge_checkpoints.py", "verify.cpp", "proof_cnf.py", "lasso_checkpoint.py")
 
 
@@ -148,8 +149,14 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
         allow_audited_migration=False, checkpoint_seconds=5.0,
         witness_selection="first", hybrid_every=8,
         transfer_opposite_bundle=None, budget_scope="total",
-        transfer_session_cache=None):
+        transfer_session_cache=None, best_interval=0, quality_binary=None):
     validate_selection(witness_selection, walker, hybrid_every)
+    if type(best_interval) is not int or not 0 <= best_interval <= 1024:
+        raise ValueError("best_interval must be integer 0..1024")
+    if best_interval and (walker != "cpp" or quality_binary is None or not Path(quality_binary).is_file()):
+        raise ValueError("best-policy tracking requires C++ walker and compiled quality binary")
+    if not best_interval and quality_binary is not None:
+        raise ValueError("quality binary given without best tracking")
     if budget_scope not in ("total", "search") or type(budget_scope) is not str:
         raise ValueError("budget_scope must be total or search")
     transfer_requested = transfer_opposite_bundle is not None or transfer_session_cache is not None
@@ -221,6 +228,11 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
         checkpoints.save(enc, masks, target, branch, witness_count, stats,
                          imported, snapshot, force=force)
     observed_worker = initialize_effort(stats)
+    best_tracker = (BestObserved(output, n, target, branch, masks, quality_binary, best_interval)
+                    if best_interval else None)
+    stats.update(quality_tracking_interval=best_interval, quality_scored_raw_models=0,
+                 quality_improvements=0, quality_sampling_seconds=0.0,
+                 best_observed_raw_quality=None, best_observed_model_index=None)
     learned = set()
     if imported is None:
         imported = {}
@@ -322,6 +334,9 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                                                     global_model_index)
                 stats["selected_mode_counts"][selected_mode] += 1
                 write_policy(output / "last-policy.tsv", n, target, policy)
+                if best_tracker is not None:
+                    best_tracker.consider(output / "last-policy.tsv", global_model_index)
+                    stats.update(best_tracker.summary())
                 stats["policy_seconds"] += time.monotonic() - policy_started
                 added = 0
                 round_new = set()
@@ -476,6 +491,12 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
         "policy_seconds", "checkpoint_total_seconds", "progress_seconds",
         "independent_replay_seconds"))
     (bundle / "audit.json").write_text(json.dumps(result, indent=2) + "\n")
+    if best_tracker is not None:
+        best_audit = independently_check_best(bundle)
+        if best_audit["status"] != "INDEPENDENTLY_REPLAYED_HISTORICAL_BEST" or best_audit["quality"] != stats["best_observed_raw_quality"]:
+            raise RuntimeError("historical best policy independent replay mismatch")
+        (bundle / "best-policy-audit.json").write_text(json.dumps(best_audit, indent=2, sort_keys=True) + "\n")
+        stats["best_policy_independent_status"] = best_audit["status"]
     stats["total_wall_seconds"] = time.monotonic() - total_started
     (bundle / "summary.json").write_text(json.dumps(stats, indent=2, sort_keys=True) + "\n")
     (output / "clauses.body").unlink(missing_ok=True)
@@ -492,6 +513,9 @@ def main():
     p.add_argument("--seconds", type=float, default=60)
     p.add_argument("--budget-scope", choices=("total", "search"), default="total",
                    help="total: include preparation; search: begin budget after audited setup")
+    p.add_argument("--best-interval", type=int, default=0,
+                   help="0 disables; 1 scores all raw SAT models, N>1 periodically samples")
+    p.add_argument("--quality-binary", type=Path, help="separate untrusted C++ frozen-suite scorer")
     p.add_argument("--max-new-per-round", type=int, default=96,
                    help="maximum newly checked witness clauses per SAT assignment")
     p.add_argument("--witness-selection", choices=("first", "short-diverse", "hybrid"), default="first",
@@ -529,7 +553,8 @@ def main():
                checkpoint_seconds=a.checkpoint_seconds,
                max_new_per_round=a.max_new_per_round,
                 witness_selection=a.witness_selection, hybrid_every=a.hybrid_every,
-                transfer_opposite_bundle=a.transfer_opposite_bundle, budget_scope=a.budget_scope)
+                transfer_opposite_bundle=a.transfer_opposite_bundle, budget_scope=a.budget_scope,
+                 best_interval=a.best_interval, quality_binary=a.quality_binary)
     print(json.dumps(data, indent=2, sort_keys=True))
 
 

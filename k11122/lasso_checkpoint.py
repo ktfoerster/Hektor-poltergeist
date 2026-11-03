@@ -11,7 +11,8 @@ import time
 
 
 FILES = ("selectors.json", "masks.json", "witnesses.jsonl", "masks.txt",
-         "cpp-batches.jsonl", "last-policy.tsv", "exhaustive-verifier.log")
+         "cpp-batches.jsonl", "last-policy.tsv", "exhaustive-verifier.log",
+         "best-policy.tsv", "best-policy.json", "quality-samples.jsonl")
 
 
 def checkpoint_root(directory):
