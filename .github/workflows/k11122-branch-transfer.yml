@@ -1,0 +1,126 @@
+name: K11122 certified opposite-branch clause reuse
+on:
+  workflow_dispatch:
+  push:
+    branches: ['research/k11122-cross-branch-witness-transfer-20261103']
+    paths:
+      - 'k11122/lasso_transfer.py'
+      - 'k11122/lasso_search.py'
+      - 'k11122/lasso_generation_search.py'
+      - 'k11122/test_lasso_transfer.py'
+      - '.github/workflows/k11122-branch-transfer.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: k11122-opposite-branch-pilot
+  cancel-in-progress: false
+jobs:
+  replay-and-compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run pinned semantic and corruption regression suite
+        run: |
+          mkdir -p evidence/bin evidence/source
+          python -m pip install python-sat==1.8.dev24 z3-solver==4.13.3.0
+          python -m pip freeze > evidence/dependencies.txt
+          python -m unittest discover -s k11122 -p 'test_*.py' -v > evidence/tests.log 2>&1 || { tail -n 140 evidence/tests.log; exit 1; }
+          tail -n 12 evidence/tests.log
+      - name: Compile unchanged checker and frozen input families
+        run: |
+          g++ -std=c++17 -O3 -Wall -Wextra -Werror k11122/lasso_batch.cpp -o evidence/bin/lasso_batch
+          g++ -std=c++17 -O3 k11122/verify.cpp -o evidence/bin/verify
+          sha256sum evidence/bin/verify evidence/bin/lasso_batch k11122/verify.cpp k11122/lasso_batch.cpp > evidence/binary-hashes.txt
+          python k11122/merge_checkpoints.py --target 0 --output evidence/merged-t0.json
+          python k11122/merge_checkpoints.py --target 3 --output evidence/merged-t3.json
+          python - <<'PY'
+          import json
+          for t,n in ((0,2701),(3,2181)):
+              assert len(json.load(open(f'evidence/merged-t{t}.json'))['masks'])==n
+          PY
+      - name: Retrieve prior full certificate bundles from immutable hosted run
+        uses: actions/download-artifact@v4
+        with:
+          name: k11122-hybrid-evidence
+          run-id: 41550722195
+          repository: ktfoerster/Hektor-poltergeist
+          github-token: \${{ github.token }}
+          path: incoming
+      - name: Independently audit original source CNFs before import
+        run: |
+          python k11122/lasso_search.py audit --output incoming/first > evidence/source-first-audit.json
+          python k11122/lasso_search.py audit --output incoming/target3 > evidence/source-target3-audit.json
+          python - <<'PY'
+          import json
+          for target,folder,clauses,h in (
+              (0,'first',84576,'0846882c9a5377bd5a8d051655c8e9846bcacb1abab492120a9712348ccbe971'),
+              (3,'target3',40608,'0d2b371cbb89dac43065d38a5ea4a3308d92acc98b7b81184ae9a657bb532eba')):
+              m=json.load(open(f'incoming/{folder}/manifest.json'))
+              a=json.load(open(f'evidence/source-{folder}-audit.json'))
+              assert (m['target'],m['branch'],m['witnesses'])==(target,0,clauses)
+              assert m['masks']==(2701 if target==0 else 2181)
+              assert m['sha256']['formula.cnf']==a['cnf_sha256']==h
+              assert a['status']=='CHECKED'
+          PY
+      - name: Equal-total-budget target-0 branch-1 cold and transfer pilot
+        run: |
+          /usr/bin/time -v -o evidence/cold-t0-time.txt python k11122/lasso_search.py run --target 0 --branch 1 --seconds 25 --seed 20261103 --walker cpp --batch-binary "$PWD/evidence/bin/lasso_batch" --verify "$PWD/evidence/bin/verify" --witness-selection hybrid --hybrid-every 8 --checkpoint-mode journal --output evidence/cold-t0 > evidence/cold-t0-stdout.json
+          /usr/bin/time -v -o evidence/transfer-t0-time.txt python k11122/lasso_search.py run --target 0 --branch 1 --seconds 25 --seed 20261103 --walker cpp --batch-binary "$PWD/evidence/bin/lasso_batch" --verify "$PWD/evidence/bin/verify" --witness-selection hybrid --hybrid-every 8 --checkpoint-mode journal --transfer-opposite-bundle "$PWD/incoming/first" --allow-audited-migration --output evidence/transfer-t0 > evidence/transfer-t0-stdout.json
+          python k11122/lasso_search.py audit --output evidence/cold-t0 > evidence/cold-t0-audit.json
+          python k11122/lasso_search.py audit --output evidence/transfer-t0 > evidence/transfer-t0-audit.json
+      - name: Test target-3 branch-1 transfer separately
+        run: |
+          python k11122/lasso_search.py run --target 3 --branch 1 --seconds 15 --seed 20261103 --walker cpp --batch-binary "$PWD/evidence/bin/lasso_batch" --verify "$PWD/evidence/bin/verify" --witness-selection hybrid --hybrid-every 8 --checkpoint-mode journal --transfer-opposite-bundle "$PWD/incoming/target3" --allow-audited-migration --output evidence/transfer-t3 > evidence/transfer-t3-stdout.json
+          python k11122/lasso_search.py audit --output evidence/transfer-t3 > evidence/transfer-t3-audit.json
+      - name: Validate both branch-1 output CNFs and record exact comparison
+        run: |
+          python - <<'PY'
+          import json,pathlib,sys
+          sys.path.insert(0,'k11122')
+          from lasso_journal import check_committed
+          root=pathlib.Path('evidence'); results={}
+          for name,target in (('cold-t0',0),('transfer-t0',0),('transfer-t3',3)):
+              base=root/name
+              s=json.loads((base/'summary.json').read_text())
+              m=json.loads((base/'manifest.json').read_text())
+              a=json.loads((base/'audit.json').read_text())
+              j=check_committed(base)
+              assert a['status']=='CHECKED' and m['target']==target and m['branch']==1
+              assert m['masks']==(2701 if target==0 else 2181)
+              assert j['verified_witnesses']==m['witnesses']
+              info=m['imported'].get('opposite_branch_certificates')
+              if name=='cold-t0':
+                  assert info is None and s['inherited_witnesses']==0
+              else:
+                  assert info and info['source_branch']==0 and info['destination_branch']==1
+                  assert info['source_witnesses']>0
+                  assert info['transferred']==s['transfer_clauses']==s['inherited_witnesses']
+                  assert sum(info[k] for k in ('transferred','branch_vacuous','duplicate'))==info['source_witnesses']
+              fields=('status','raw_models','new_witnesses','inherited_witnesses','transfer_clauses',
+                'transfer_branch_vacuous','transfer_seconds','solver_seconds','replay_seconds',
+                'batch_cpp_seconds','checkpoint_seconds','finite_suite_candidates','completed_scans','peak_rss_kib')
+              results[name]={k:s.get(k) for k in fields}
+              results[name]['cnf_sha256']=a['cnf_sha256']
+              results[name]['source_manifest_sha256']=info['source_manifest_sha256'] if info else None
+          results['scope']='Only independently checked, necessary witness clauses; no opposite branch assertion or solver verdict'
+          (root/'comparison.json').write_text(json.dumps(results,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(results,sort_keys=True))
+          PY
+      - name: Preserve evidence without duplicating the previous source archive
+        if: always()
+        run: |
+          cp k11122/lasso_transfer.py k11122/lasso_search.py k11122/lasso_generation_search.py k11122/lasso_witness.py k11122/test_lasso_transfer.py .github/workflows/k11122-branch-transfer.yml evidence/source/
+          echo "$GITHUB_SHA" > evidence/commit.txt
+          echo 'https://github.com/ktfoerster/Hektor-poltergeist/actions/runs/41550722195/artifacts/13192195848' > evidence/input-artifact-url.txt
+          find evidence -type f ! -name SHA256SUMS ! -name .owner.lock -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k11122-opposite-branch-transfer-evidence
+          path: evidence/
+          retention-days: 30

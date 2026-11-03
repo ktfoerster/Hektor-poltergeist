@@ -19,6 +19,7 @@ from sat_search import BooleanEncoding, partition, write_policy
 from lasso_witness import (sha, selector_rows, trace, checked_clause, audit)
 from lasso_selection_schedule import (validate_selection, effective_selection,
                                       inherited_model_offset)
+from lasso_transfer import transfer
 
 
 class CapturedPolicy(BooleanEncoding):
@@ -64,7 +65,7 @@ def checked_policy(payload, reference_rows):
 
 
 def source_names():
-    return ("lasso_search.py", "lasso_generation_search.py", "lasso_selection_schedule.py", "lasso_witness.py", "lasso_batch.cpp", "sat_search.py",
+    return ("lasso_search.py", "lasso_generation_search.py", "lasso_selection_schedule.py", "lasso_transfer.py", "lasso_witness.py", "lasso_batch.cpp", "sat_search.py",
              "merge_checkpoints.py", "verify.cpp", "proof_cnf.py", "lasso_checkpoint.py")
 
 
@@ -143,8 +144,11 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
         resume=None, seed=20261101, backend="cadical195",
         imported=None, max_new_per_round=96, walker="python", batch_binary=None,
         allow_audited_migration=False, checkpoint_seconds=5.0,
-        witness_selection="first", hybrid_every=8):
+        witness_selection="first", hybrid_every=8,
+        transfer_opposite_bundle=None):
     validate_selection(witness_selection, walker, hybrid_every)
+    if transfer_opposite_bundle is not None and (resume is not None or type(branch) is not int or branch not in (0, 1)):
+        raise ValueError("opposite-branch transfer requires a first-hop branch and no simultaneous resume")
     if type(max_new_per_round) is not int or max_new_per_round < 1:
         raise ValueError("max_new_per_round must be a positive integer")
     if not math.isfinite(checkpoint_seconds) or checkpoint_seconds < 0:
@@ -190,6 +194,7 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                  selected_mode_clauses={"first": 0, "short-diverse": 0},
                  selected_mode_literals={"first": 0, "short-diverse": 0},
                  clause_literals_total=0, clause_literals_min=None, clause_literals_max=0,
+                 transfer_seconds=0.0, transfer_clauses=0, transfer_branch_vacuous=0,
                  completed_scans=0, interrupted_scans=0, walker=walker,
                  batch_invocations=0, batch_cpp_seconds=0.0,
                  batch_python_check_seconds=0.0,
@@ -211,6 +216,25 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
     witness_count = 0
     try:
         with (output / "witnesses.jsonl").open("w") as records:
+            if transfer_opposite_bundle is not None:
+                started_transfer = time.monotonic()
+                def add_transferred(clause):
+                    if tuple(clause) in learned:
+                        raise ValueError("duplicate cross-branch clause")
+                    learned.add(tuple(clause))
+                    enc.add_clause(clause)
+                transfer_info = transfer(
+                    transfer_opposite_bundle, n, target, branch, masks,
+                    add_transferred, lambda item: records.write(
+                        json.dumps(item, sort_keys=True, separators=(",", ":")) + "\n"),
+                    expected_source_hashes=source_hashes(),
+                    allow_audited_migration=allow_audited_migration)
+                witness_count += transfer_info["transferred"]
+                stats["inherited_witnesses"] += transfer_info["transferred"]
+                stats["transfer_clauses"] = transfer_info["transferred"]
+                stats["transfer_branch_vacuous"] = transfer_info["branch_vacuous"]
+                stats["transfer_seconds"] = time.monotonic() - started_transfer
+                imported["opposite_branch_certificates"] = transfer_info
             if resume is not None:
                 resume_started = time.monotonic()
                 previous = checkpoint_root(resume)
@@ -447,6 +471,8 @@ def main():
     p.add_argument("--checkpoint-seconds", type=float, default=5.0,
                    help="complete checkpoint interval; 0 publishes every round")
     p.add_argument("--resume", type=Path)
+    p.add_argument("--transfer-opposite-bundle", type=Path,
+                   help="audit and reuse necessary clauses from the opposite branch")
     p.add_argument("--verify", type=Path)
     p.add_argument("--walker", choices=("python", "cpp"), default="python")
     p.add_argument("--batch-binary", type=Path, help="compiled C++ scanner (only for --walker cpp)")
@@ -474,7 +500,8 @@ def main():
                allow_audited_migration=a.allow_audited_migration,
                checkpoint_seconds=a.checkpoint_seconds,
                max_new_per_round=a.max_new_per_round,
-                witness_selection=a.witness_selection, hybrid_every=a.hybrid_every)
+                witness_selection=a.witness_selection, hybrid_every=a.hybrid_every,
+                transfer_opposite_bundle=a.transfer_opposite_bundle)
     print(json.dumps(data, indent=2, sort_keys=True))
 
 
