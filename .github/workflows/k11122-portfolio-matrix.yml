@@ -1,0 +1,126 @@
+name: K11122 four-case independently certified SAT portfolio matrix
+on:
+  workflow_dispatch:
+  push:
+    branches: ['research/k11122-four-branch-portfolio-20261103']
+    paths:
+      - 'k11122/lasso_portfolio_matrix.py'
+      - 'k11122/test_lasso_portfolio_matrix.py'
+      - 'k11122/PORTFOLIO_MATRIX.md'
+      - '.github/workflows/k11122-portfolio-matrix.yml'
+permissions:
+  contents: read
+concurrency:
+  group: k11122-four-branch-portfolio
+  cancel-in-progress: false
+jobs:
+  independently-audited-matrix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned SAT solvers and run all semantic, corruption, and regression tests
+        run: |
+          mkdir -p evidence/bin evidence/source
+          python -m pip install python-sat==1.8.dev24 z3-solver==4.13.3.0
+          python -m pip freeze > evidence/dependencies.txt
+          python -m unittest discover -s k11122 -p 'test_*.py' -v > evidence/tests.log 2>&1 || { tail -n 180 evidence/tests.log; exit 1; }
+          tail -n 15 evidence/tests.log
+      - name: Rebuild untouched exhaustive verifier, independent fast witness and policy-quality scorers
+        run: |
+          g++ -O3 -std=c++17 -Wall -Wextra -Werror k11122/lasso_batch.cpp -o evidence/bin/lasso_batch
+          g++ -O3 -std=c++17 -Wall -Wextra -Werror k11122/lasso_quality.cpp -o evidence/bin/lasso_quality
+          g++ -O3 -std=c++17 k11122/verify.cpp -o evidence/bin/verify
+          sha256sum evidence/bin/* k11122/lasso_batch.cpp k11122/lasso_quality.cpp k11122/verify.cpp > evidence/binary-hashes.txt
+          python k11122/merge_checkpoints.py --target 0 --output evidence/merged-t0.json
+          python k11122/merge_checkpoints.py --target 3 --output evidence/merged-t3.json
+          python - <<'PY'
+          import json, pathlib
+          for target,expected in ((0,2701),(3,2181)):
+              data=json.loads((pathlib.Path('evidence')/f'merged-t{target}.json').read_text())
+              masks=data['masks']
+              assert len(masks)==expected
+              assert masks==sorted(set(masks))
+          PY
+      - name: Two independently audited backend sources and three equal-search continuations in EACH of four target/branch cases
+        run: |
+          /usr/bin/time -v -o evidence/matrix-walltime.txt python k11122/lasso_portfolio_matrix.py \
+            --output evidence/matrix \
+            --scanner "$PWD/evidence/bin/lasso_batch" \
+            --scorer "$PWD/evidence/bin/lasso_quality" \
+            --verifier "$PWD/evidence/bin/verify" \
+            --source-seconds 6 --search-seconds 8 \
+            --seed 20261103 --best-interval 8 > evidence/matrix-stdout.json
+      - name: Check exact four-case coverage, independent audits and no invented result
+        run: |
+          python - <<'PY'
+          import json,pathlib,sys
+          sys.path.insert(0,'k11122')
+          from lasso_witness import audit,sha
+          from lasso_best import independently_check_best
+          from lasso_journal import check_committed
+          root=pathlib.Path('evidence/matrix')
+          matrix=json.loads((root/'portfolio-matrix-summary.json').read_text())
+          assert set(matrix['cases'])=={'t0-b0','t0-b1','t3-b0','t3-b1'}
+          succinct={}
+          for label,data in sorted(matrix['cases'].items()):
+              t,b=data['target'],data['branch']
+              expected=2701 if t==0 else 2181
+              assert data['input_frozen_masks']==expected
+              p=data['portfolio']
+              assert p['target']==t and p['branch']==b and p['residuals']==expected
+              assert p['source_count']==2 and p['input_witnesses']>=p['deduplicated_witnesses']>0
+              assert sum(x['newly_contributed_necessary_clauses'] for x in p['source_details'])==p['deduplicated_witnesses']
+              assert sum(x['duplicate_clauses'] for x in p['source_details'])==p['duplicates_eliminated']
+              for arm in ('cadical195','maplechrono','portfolio'):
+                  assert arm in data['continuations']
+                  item=data['continuations'][arm]
+                  folder=root/f'{label}-continue-{arm}'
+                  base=root/(f'{label}-portfolio' if arm=='portfolio' else f'{label}-source-{arm}')
+                  manifest=json.loads((folder/'manifest.json').read_text())
+                  checked=audit(folder)
+                  historical=independently_check_best(folder)
+                  assert checked['status']=='CHECKED'
+                  assert checked['cnf_sha256']==item['terminal_formula_sha256']
+                  assert check_committed(folder)['verified_witnesses']==manifest['witnesses']
+                  assert manifest['imported']['resumed_from']['manifest_sha256']==sha(base/'manifest.json')
+                  assert item['input_checkpoint_formula_sha256']==sha(base/'formula.cnf')
+                  assert item['target']==t and item['branch']==b and item['frozen_residual_masks']==expected
+                  assert item['inherited_certified_clauses']==json.loads((base/'manifest.json').read_text())['witnesses']
+                  assert item['active_search_seconds']<=11
+                  assert historical==item['sampled_historical_best']
+                  if item['raw_models']>0:
+                      assert historical['status']=='INDEPENDENTLY_REPLAYED_HISTORICAL_BEST'
+                  assert item['status'] in ('UNKNOWN','UNSAT_UNCERTIFIED',
+                      'FINITE_SUITE_SAT_UNVERIFIED','FINITE_SAT_GLOBALLY_INVALID',
+                      'VERIFIED_POSITIVE_ONE_ORBIT')
+              succinct[label]={
+                  'actual_source_hash_trajectory_divergence':data['actually_divergent_source_trajectories'],
+                  'first_divergent_source_model':data['divergence']['first_divergent_model_in_common_prefix'],
+                  'initial_unique_necessary_clauses':p['deduplicated_witnesses'],
+                  'portfolio_duplicate_clauses':p['duplicates_eliminated'],
+                  'source_generation_seconds':{arm:data['source_checkpoints'][arm]['external_wall_seconds']
+                                               for arm in ('cadical195','maplechrono')},
+                  'portfolio_creation_seconds':data['portfolio_creation_audit_and_deduplication_seconds'],
+                  'sampled_best_failing_masks':data['comparison']['best_sampled_failing_masks'],
+                  'portfolio_improvement_vs_best_single':data['comparison']['portfolio_improvement_vs_best_single_masks'],
+                  'states':{arm:data['continuations'][arm]['status'] for arm in ('cadical195','maplechrono','portfolio')}}
+          (pathlib.Path('evidence')/'four-case-comparison.json').write_text(
+              json.dumps(succinct,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(succinct,sort_keys=True))
+          PY
+      - name: Preserve complete source, immutable witness evidence, audit logs and file fingerprints
+        if: always()
+        run: |
+          cp k11122/lasso_portfolio_matrix.py k11122/test_lasso_portfolio_matrix.py k11122/lasso_portfolio.py k11122/lasso_search.py k11122/lasso_witness.py k11122/lasso_best.py k11122/PORTFOLIO_MATRIX.md .github/workflows/k11122-portfolio-matrix.yml evidence/source/
+          echo "$GITHUB_SHA" > evidence/commit.txt
+          find evidence -type f ! -name SHA256SUMS ! -name .owner.lock -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k11122-four-case-portfolio-evidence
+          path: evidence/
+          retention-days: 30
