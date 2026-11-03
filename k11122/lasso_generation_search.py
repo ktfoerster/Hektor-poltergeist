@@ -20,6 +20,7 @@ from lasso_witness import (sha, selector_rows, trace, checked_clause, audit)
 from lasso_selection_schedule import (validate_selection, effective_selection,
                                       inherited_model_offset)
 from lasso_transfer import transfer
+from lasso_effort import initialize as initialize_effort, observe as observe_effort
 
 
 class CapturedPolicy(BooleanEncoding):
@@ -65,7 +66,7 @@ def checked_policy(payload, reference_rows):
 
 
 def source_names():
-    return ("lasso_search.py", "lasso_generation_search.py", "lasso_selection_schedule.py", "lasso_transfer.py", "lasso_witness.py", "lasso_batch.cpp", "sat_search.py",
+    return ("lasso_search.py", "lasso_generation_search.py", "lasso_selection_schedule.py", "lasso_transfer.py", "lasso_effort.py", "lasso_witness.py", "lasso_batch.cpp", "sat_search.py",
              "merge_checkpoints.py", "verify.cpp", "proof_cnf.py", "lasso_checkpoint.py")
 
 
@@ -145,8 +146,10 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
         imported=None, max_new_per_round=96, walker="python", batch_binary=None,
         allow_audited_migration=False, checkpoint_seconds=5.0,
         witness_selection="first", hybrid_every=8,
-        transfer_opposite_bundle=None):
+        transfer_opposite_bundle=None, budget_scope="total"):
     validate_selection(witness_selection, walker, hybrid_every)
+    if budget_scope not in ("total", "search") or type(budget_scope) is not str:
+        raise ValueError("budget_scope must be total or search")
     if transfer_opposite_bundle is not None and (resume is not None or type(branch) is not int or branch not in (0, 1)):
         raise ValueError("opposite-branch transfer requires a first-hop branch and no simultaneous resume")
     if type(max_new_per_round) is not int or max_new_per_round < 1:
@@ -172,6 +175,7 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
     checkpoints = Checkpoints(bundle, checkpoint_seconds)
     output = checkpoints.work
     started = time.monotonic()
+    total_started = started
     construction = time.monotonic()
     enc = CapturedPolicy(n, target, output / "clauses.body", seed, backend)
     partition(enc, branch)
@@ -195,6 +199,7 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                  selected_mode_literals={"first": 0, "short-diverse": 0},
                  clause_literals_total=0, clause_literals_min=None, clause_literals_max=0,
                  transfer_seconds=0.0, transfer_clauses=0, transfer_branch_vacuous=0,
+                 budget_scope=budget_scope, preparation_seconds=0.0,
                  completed_scans=0, interrupted_scans=0, walker=walker,
                  batch_invocations=0, batch_cpp_seconds=0.0,
                  batch_python_check_seconds=0.0,
@@ -208,6 +213,7 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
         stats["elapsed_seconds"] = time.monotonic() - started
         checkpoints.save(enc, masks, target, branch, witness_count, stats,
                          imported, snapshot, force=force)
+    observed_worker = initialize_effort(stats)
     learned = set()
     if imported is None:
         imported = {}
@@ -271,6 +277,9 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                 stats["resume_seconds"] = time.monotonic() - resume_started
             records.flush()
             save(force=True)
+            stats["preparation_seconds"] = time.monotonic() - total_started
+            if budget_scope == "search":
+                started = time.monotonic()
             iteration = 0
             while time.monotonic() - started < seconds:
                 iteration += 1
@@ -280,6 +289,7 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                                                   output / f"solve-{iteration:05}.json",
                                                   conflict_budget=40000)
                 stats["solver_seconds"] += time.monotonic() - before
+                observed_worker = observe_effort(stats, observed_worker, payload)
                 if outcome is None:
                     # Retain the worker's learned clauses across bounded slices.
                     if iteration % 5 == 0:
@@ -465,6 +475,8 @@ def main():
     p.add_argument("--branch", type=int, choices=(-1, 0, 1), default=0)
     p.add_argument("--root", type=Path, default=LATEST)
     p.add_argument("--seconds", type=float, default=60)
+    p.add_argument("--budget-scope", choices=("total", "search"), default="total",
+                   help="total: include preparation; search: begin budget after audited setup")
     p.add_argument("--max-new-per-round", type=int, default=96,
                    help="maximum newly checked witness clauses per SAT assignment")
     p.add_argument("--witness-selection", choices=("first", "short-diverse", "hybrid"), default="first",
@@ -502,7 +514,7 @@ def main():
                checkpoint_seconds=a.checkpoint_seconds,
                max_new_per_round=a.max_new_per_round,
                 witness_selection=a.witness_selection, hybrid_every=a.hybrid_every,
-                transfer_opposite_bundle=a.transfer_opposite_bundle)
+                transfer_opposite_bundle=a.transfer_opposite_bundle, budget_scope=a.budget_scope)
     print(json.dumps(data, indent=2, sort_keys=True))
 
 
