@@ -17,6 +17,8 @@ from lasso_checkpoint import Checkpoints, checkpoint_root
 from merge_checkpoints import LATEST, merge
 from sat_search import BooleanEncoding, partition, write_policy
 from lasso_witness import (sha, selector_rows, trace, checked_clause, audit)
+from lasso_selection_schedule import (validate_selection, effective_selection,
+                                      inherited_model_offset)
 
 
 class CapturedPolicy(BooleanEncoding):
@@ -62,7 +64,7 @@ def checked_policy(payload, reference_rows):
 
 
 def source_names():
-    return ("lasso_search.py", "lasso_generation_search.py", "lasso_witness.py", "lasso_batch.cpp", "sat_search.py",
+    return ("lasso_search.py", "lasso_generation_search.py", "lasso_selection_schedule.py", "lasso_witness.py", "lasso_batch.cpp", "sat_search.py",
              "merge_checkpoints.py", "verify.cpp", "proof_cnf.py", "lasso_checkpoint.py")
 
 
@@ -141,9 +143,8 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
         resume=None, seed=20261101, backend="cadical195",
         imported=None, max_new_per_round=96, walker="python", batch_binary=None,
         allow_audited_migration=False, checkpoint_seconds=5.0,
-        witness_selection="first"):
-    if witness_selection not in ("first", "short-diverse") or (walker != "cpp" and witness_selection != "first"):
-        raise ValueError("short-diverse selection requires C++ walker")
+        witness_selection="first", hybrid_every=8):
+    validate_selection(witness_selection, walker, hybrid_every)
     if type(max_new_per_round) is not int or max_new_per_round < 1:
         raise ValueError("max_new_per_round must be a positive integer")
     if not math.isfinite(checkpoint_seconds) or checkpoint_seconds < 0:
@@ -184,6 +185,10 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                  solver_seconds=0.0, replay_seconds=0.0,
                  construction_seconds=base_seconds, budget_seconds=seconds,
                  max_new_per_round=max_new_per_round, witness_selection=witness_selection,
+                 hybrid_every=hybrid_every, selection_model_offset=0,
+                 selected_mode_counts={"first": 0, "short-diverse": 0},
+                 selected_mode_clauses={"first": 0, "short-diverse": 0},
+                 selected_mode_literals={"first": 0, "short-diverse": 0},
                  clause_literals_total=0, clause_literals_min=None, clause_literals_max=0,
                  completed_scans=0, interrupted_scans=0, walker=walker,
                  batch_invocations=0, batch_cpp_seconds=0.0,
@@ -220,6 +225,7 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                 migrated = old["source_sha256"] != source_hashes()
                 if migrated and not allow_audited_migration:
                     raise ValueError("resume source mismatch; use explicit audited migration")
+                stats["selection_model_offset"] = inherited_model_offset(old)
                 imported["resumed_from"] = {
                     "manifest_sha256": sha(previous / "manifest.json"),
                     "formula_sha256": sha(previous / "formula.cnf"),
@@ -262,6 +268,10 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                 policy_started = time.monotonic()
                 policy = checked_policy(payload, independent)
                 stats["raw_models"] += 1
+                global_model_index = stats["selection_model_offset"] + stats["raw_models"]
+                selected_mode = effective_selection(witness_selection, hybrid_every,
+                                                    global_model_index)
+                stats["selected_mode_counts"][selected_mode] += 1
                 write_policy(output / "last-policy.tsv", n, target, policy)
                 stats["policy_seconds"] += time.monotonic() - policy_started
                 added = 0
@@ -281,7 +291,7 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                     try:
                         process = subprocess.run(
                             [str(batch_binary), str((output / "last-policy.tsv").resolve()),
-                             str((output / "masks.txt").resolve()), str(max_new_per_round), witness_selection],
+                             str((output / "masks.txt").resolve()), str(max_new_per_round), selected_mode],
                             capture_output=True, text=True, check=True,
                             timeout=max(0.01, min(15.0, remaining)))
                     except subprocess.TimeoutExpired:
@@ -303,13 +313,15 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                             report.get("scanned_masks", -1) > len(masks) or
                             type(report.get("scan_complete")) is not bool):
                         raise RuntimeError("invalid C++ scan accounting")
-                    if witness_selection == "short-diverse":
+                    if selected_mode == "short-diverse":
                         if (report.get("selection") != "short-diverse" or
                                 report.get("scan_complete") is not True or
                                 report.get("scanned_masks") != len(masks) or
                                 type(report.get("unique_candidates")) is not int or
                                 report["unique_candidates"] < len(messages) - 1):
                             raise RuntimeError("invalid C++ short-diverse full-scan accounting")
+                    if selected_mode == "first" and report.get("selection") is not None:
+                        raise RuntimeError("unexpected C++ first-mode metadata")
                     for item in messages[:-1]:
                         if item.get("type") != "witness" or set(item) != {"type", "witness"}:
                             raise RuntimeError("invalid C++ scan record")
@@ -320,6 +332,9 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                         cpp_logs.write(json.dumps({
                             "iteration": iteration,
                             "policy_sha256": sha(output / "last-policy.tsv"),
+                            "selection_mode": selected_mode,
+                            "global_model_index": global_model_index,
+                            "hybrid_every": hybrid_every,
                             "report": report}, sort_keys=True) + "\n")
                     full_scan = report["scan_complete"]
                     if not batch_witnesses and full_scan:
@@ -360,6 +375,8 @@ def run(output, n, target, branch, masks, seconds, verifier=None,
                         raise RuntimeError("SAT assignment violates a previously learned clause")
                     learned.add(tuple(clause))
                     round_new.add(tuple(clause))
+                    stats["selected_mode_clauses"][selected_mode] += 1
+                    stats["selected_mode_literals"][selected_mode] += len(clause)
                     stats["clause_literals_total"] += len(clause)
                     stats["clause_literals_min"] = min(len(clause), stats["clause_literals_min"]) if stats["clause_literals_min"] is not None else len(clause)
                     stats["clause_literals_max"] = max(len(clause), stats["clause_literals_max"])
@@ -425,7 +442,7 @@ def main():
     p.add_argument("--seconds", type=float, default=60)
     p.add_argument("--max-new-per-round", type=int, default=96,
                    help="maximum newly checked witness clauses per SAT assignment")
-    p.add_argument("--witness-selection", choices=("first", "short-diverse"), default="first",
+    p.add_argument("--witness-selection", choices=("first", "short-diverse", "hybrid"), default="first",
                    help="C++ witness preference, no routing-model restrictions")
     p.add_argument("--checkpoint-seconds", type=float, default=5.0,
                    help="complete checkpoint interval; 0 publishes every round")
@@ -433,6 +450,8 @@ def main():
     p.add_argument("--verify", type=Path)
     p.add_argument("--walker", choices=("python", "cpp"), default="python")
     p.add_argument("--batch-binary", type=Path, help="compiled C++ scanner (only for --walker cpp)")
+    p.add_argument("--hybrid-every", type=int, default=8,
+                   help="hybrid mode uses short-diverse on each Nth SAT model, otherwise first")
     p.add_argument("--allow-audited-migration", action="store_true",
                    help="explicitly recheck old complete witness CNF despite source version change")
     p.add_argument("--seed", type=int, default=20261101)
@@ -455,7 +474,7 @@ def main():
                allow_audited_migration=a.allow_audited_migration,
                checkpoint_seconds=a.checkpoint_seconds,
                max_new_per_round=a.max_new_per_round,
-                witness_selection=a.witness_selection)
+                witness_selection=a.witness_selection, hybrid_every=a.hybrid_every)
     print(json.dumps(data, indent=2, sort_keys=True))
 
 

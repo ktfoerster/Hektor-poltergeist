@@ -1,0 +1,111 @@
+name: K11122 deterministic hybrid lasso pilot
+on:
+  workflow_dispatch:
+  push:
+    branches: ['research/k11122-hybrid-20261103']
+    paths:
+      - 'k11122/lasso_search.py'
+      - 'k11122/lasso_generation_search.py'
+      - 'k11122/lasso_selection_schedule.py'
+      - 'k11122/test_lasso_hybrid.py'
+      - '.github/workflows/k11122-hybrid.yml'
+permissions:
+  contents: read
+concurrency:
+  group: k11122-hybrid-pilot
+  cancel-in-progress: false
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pinned dependencies and full regression suite
+        run: |
+          mkdir -p evidence/bin evidence/source
+          python -m pip install python-sat==1.8.dev24 z3-solver==4.13.3.0
+          python -m pip freeze > evidence/dependencies.txt
+          python -m unittest discover -s k11122 -p 'test_*.py' -v > evidence/tests.log 2>&1 || { tail -n 140 evidence/tests.log; exit 1; }
+          tail -n 12 evidence/tests.log
+      - name: Independent verifier, C++ scanner, and identical residual families
+        run: |
+          g++ -O3 -std=c++17 -Wall -Wextra -Werror k11122/lasso_batch.cpp -o evidence/bin/lasso_batch
+          g++ -O3 -std=c++17 k11122/verify.cpp -o evidence/bin/verify
+          sha256sum evidence/bin/lasso_batch evidence/bin/verify k11122/lasso_batch.cpp k11122/verify.cpp > evidence/binary-hashes.txt
+          python k11122/merge_checkpoints.py --target 0 --output evidence/merged-t0.json
+          python k11122/merge_checkpoints.py --target 3 --output evidence/merged-t3.json
+          python - <<'PY'
+          import json
+          assert len(json.load(open('evidence/merged-t0.json'))['masks']) == 2701
+          assert len(json.load(open('evidence/merged-t3.json'))['masks']) == 2181
+          PY
+      - name: Equal 20-second cold search budgets on target 0 branch 0
+        run: |
+          for mode in first short-diverse hybrid; do
+            /usr/bin/time -v -o "evidence/$mode-time.txt" python k11122/lasso_search.py run --target 0 --branch 0 --seed 20261103 --seconds 20 --walker cpp --batch-binary "$PWD/evidence/bin/lasso_batch" --verify "$PWD/evidence/bin/verify" --checkpoint-mode journal --max-new-per-round 96 --hybrid-every 8 --witness-selection "$mode" --output "evidence/$mode" > "evidence/$mode-stdout.json"
+            python k11122/lasso_search.py audit --output "evidence/$mode" > "evidence/$mode-audit.json"
+          done
+          python - <<'PY'
+          import json,pathlib,sys
+          sys.path.insert(0, 'k11122')
+          from lasso_journal import check_committed
+          from lasso_selection_schedule import effective_selection
+          root=pathlib.Path('evidence'); out={}
+          for mode in ('first','short-diverse','hybrid'):
+              s=json.loads((root/mode/'summary.json').read_text())
+              m=json.loads((root/mode/'manifest.json').read_text())
+              a=json.loads((root/mode/'audit.json').read_text())
+              ledger=check_committed(root/mode)
+              assert a['status']=='CHECKED'
+              assert m['target']==0 and m['branch']==0 and m['masks']==2701
+              assert ledger['verified_witnesses']==m['witnesses']
+              assert s['hybrid_every']==8 and s['witness_selection']==mode
+              assert sum(s['selected_mode_counts'].values())==s['raw_models']
+              assert sum(s['selected_mode_clauses'].values())==s['new_witnesses']
+              assert sum(s['selected_mode_literals'].values())==s['clause_literals_total']
+              logs=[json.loads(x) for x in (root/mode/'cpp-batches.jsonl').read_text().splitlines()]
+              last=0
+              for log in logs:
+                  idx=log['global_model_index']
+                  assert idx>last
+                  assert log['selection_mode']==effective_selection(mode,8,idx)
+                  assert log['hybrid_every']==8
+                  if log['selection_mode']=='short-diverse':
+                      assert log['report']['selection']=='short-diverse'
+                      assert log['report']['scan_complete'] is True
+                  else:
+                      assert 'selection' not in log['report']
+                  last=idx
+              assert len(logs)<=s['raw_models']
+              keys=('status','raw_models','new_witnesses','solver_seconds','replay_seconds',
+                    'batch_cpp_seconds','batch_python_check_seconds','checkpoint_seconds',
+                    'clause_literals_total','clause_literals_min','clause_literals_max',
+                    'selected_mode_counts','selected_mode_clauses','selected_mode_literals',
+                    'selection_model_offset','completed_scans','finite_suite_candidates','peak_rss_kib')
+              out[mode]={k:s[k] for k in keys}
+              out[mode]['mean_clause_literals']=(s['clause_literals_total']/s['new_witnesses'] if s['new_witnesses'] else None)
+              out[mode]['cnf_sha256']=m['sha256']['formula.cnf']
+              out[mode]['log_records']=len(logs)
+          out['scope']='Three deterministic necessary-clause schedules on the same 2701 residuals, backend/seed, 20s search budgets; no graph classification'
+          (root/'comparison.json').write_text(json.dumps(out,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(out,sort_keys=True))
+          PY
+      - name: Separate bounded target-3 hybrid smoke
+        run: |
+          python k11122/lasso_search.py run --target 3 --branch 0 --seed 20261103 --seconds 10 --walker cpp --batch-binary "$PWD/evidence/bin/lasso_batch" --verify "$PWD/evidence/bin/verify" --checkpoint-mode journal --max-new-per-round 96 --hybrid-every 8 --witness-selection hybrid --output evidence/target3 > evidence/target3-stdout.json
+          python k11122/lasso_search.py audit --output evidence/target3 > evidence/target3-audit.json
+      - name: Preserve complete source, checkpoint evidence and checksums
+        if: always()
+        run: |
+          cp k11122/lasso_search.py k11122/lasso_generation_search.py k11122/lasso_selection_schedule.py k11122/test_lasso_hybrid.py k11122/lasso_witness.py k11122/lasso_batch.cpp .github/workflows/k11122-hybrid.yml evidence/source/
+          echo "$GITHUB_SHA" > evidence/commit.txt
+          find evidence -type f ! -name SHA256SUMS ! -name .owner.lock -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k11122-hybrid-evidence
+          path: evidence/
+          retention-days: 30
