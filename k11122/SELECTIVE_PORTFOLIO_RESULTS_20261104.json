@@ -1,0 +1,211 @@
+{
+  "schema": 1,
+  "experiment": "selective K11122 same-source four-case comparison",
+  "tested_commit": "7d53bd1f9114cb961f97bebdab8ad95e062445e8",
+  "actions_run_id": 41776143667,
+  "artifact_id": 13298115418,
+  "artifact_sha256": "af205307196fcf2390d17a14daa3bdd02270d57a1c712d7a5a7038b07d4bf02c",
+  "zip_entries": 8626,
+  "checked_file_sha256_count": 8625,
+  "tests_passed": 105,
+  "scope": "One deterministic seed and seven-second active continuations; no proof",
+  "results": {
+    "scope": "Historical best of periodically sampled raw SAT policies; no terminal SAT or graph classification.",
+    "t0-b0": {
+      "best_sampled_failing_masks": {
+        "alternative": 959,
+        "balanced-half": 721,
+        "cadical": 772,
+        "pooled": 662,
+        "shortest-half": 658
+      },
+      "filtered": {
+        "balanced-half": {
+          "prep_seconds": 5.964487818000009,
+          "retained": 21183,
+          "subsumed": 0,
+          "witness_masks": 1244
+        },
+        "lossless": {
+          "prep_seconds": 6.927498449999973,
+          "retained": 42366,
+          "subsumed": 0,
+          "witness_masks": 1244
+        },
+        "shortest-half": {
+          "prep_seconds": 5.7547726669999975,
+          "retained": 21183,
+          "subsumed": 0,
+          "witness_masks": 1205
+        }
+      },
+      "full_clauses": 42366,
+      "full_portfolio_construction_seconds": 5.782098364000035,
+      "raw_models": {
+        "alternative": 319,
+        "balanced-half": 320,
+        "cadical": 315,
+        "pooled": 313,
+        "shortest-half": 314
+      },
+      "source_generation_wall_seconds": {
+        "cadical195": 7.935937305999971,
+        "maplechrono": 7.8395958929999665
+      },
+      "statuses": {
+        "alternative": "UNKNOWN",
+        "balanced-half": "UNKNOWN",
+        "cadical": "UNKNOWN",
+        "pooled": "UNKNOWN",
+        "shortest-half": "UNKNOWN"
+      }
+    },
+    "t0-b1": {
+      "best_sampled_failing_masks": {
+        "alternative": 735,
+        "balanced-half": 663,
+        "cadical": 672,
+        "pooled": 700,
+        "shortest-half": 673
+      },
+      "filtered": {
+        "balanced-half": {
+          "prep_seconds": 5.9675930490000155,
+          "retained": 21582,
+          "subsumed": 0,
+          "witness_masks": 1253
+        },
+        "lossless": {
+          "prep_seconds": 6.955366267999921,
+          "retained": 43164,
+          "subsumed": 0,
+          "witness_masks": 1253
+        },
+        "shortest-half": {
+          "prep_seconds": 5.7994710780000105,
+          "retained": 21582,
+          "subsumed": 0,
+          "witness_masks": 1222
+        }
+      },
+      "full_clauses": 43164,
+      "full_portfolio_construction_seconds": 5.8604317179999725,
+      "raw_models": {
+        "alternative": 319,
+        "balanced-half": 316,
+        "cadical": 319,
+        "pooled": 316,
+        "shortest-half": 320
+      },
+      "source_generation_wall_seconds": {
+        "cadical195": 8.057460860999981,
+        "maplechrono": 7.886928063000028
+      },
+      "statuses": {
+        "alternative": "UNKNOWN",
+        "balanced-half": "UNKNOWN",
+        "cadical": "UNKNOWN",
+        "pooled": "UNKNOWN",
+        "shortest-half": "UNKNOWN"
+      }
+    },
+    "t3-b0": {
+      "best_sampled_failing_masks": {
+        "alternative": 416,
+        "balanced-half": 410,
+        "cadical": 473,
+        "pooled": 444,
+        "shortest-half": 439
+      },
+      "filtered": {
+        "balanced-half": {
+          "prep_seconds": 5.352419361999978,
+          "retained": 20233,
+          "subsumed": 0,
+          "witness_masks": 1378
+        },
+        "lossless": {
+          "prep_seconds": 6.323466639000003,
+          "retained": 40465,
+          "subsumed": 0,
+          "witness_masks": 1378
+        },
+        "shortest-half": {
+          "prep_seconds": 5.299855968999964,
+          "retained": 20233,
+          "subsumed": 0,
+          "witness_masks": 1339
+        }
+      },
+      "full_clauses": 40465,
+      "full_portfolio_construction_seconds": 5.406667943000002,
+      "raw_models": {
+        "alternative": 296,
+        "balanced-half": 305,
+        "cadical": 302,
+        "pooled": 297,
+        "shortest-half": 302
+      },
+      "source_generation_wall_seconds": {
+        "cadical195": 7.86174955499996,
+        "maplechrono": 7.697756999000035
+      },
+      "statuses": {
+        "alternative": "UNKNOWN",
+        "balanced-half": "UNKNOWN",
+        "cadical": "UNKNOWN",
+        "pooled": "UNKNOWN",
+        "shortest-half": "UNKNOWN"
+      }
+    },
+    "t3-b1": {
+      "best_sampled_failing_masks": {
+        "alternative": 496,
+        "balanced-half": 426,
+        "cadical": 418,
+        "pooled": 549,
+        "shortest-half": 443
+      },
+      "filtered": {
+        "balanced-half": {
+          "prep_seconds": 5.0848891570000205,
+          "retained": 19566,
+          "subsumed": 0,
+          "witness_masks": 1381
+        },
+        "lossless": {
+          "prep_seconds": 6.142156887999931,
+          "retained": 39131,
+          "subsumed": 0,
+          "witness_masks": 1381
+        },
+        "shortest-half": {
+          "prep_seconds": 5.222419170999956,
+          "retained": 19566,
+          "subsumed": 0,
+          "witness_masks": 1335
+        }
+      },
+      "full_clauses": 39131,
+      "full_portfolio_construction_seconds": 5.2245849089999865,
+      "raw_models": {
+        "alternative": 300,
+        "balanced-half": 305,
+        "cadical": 302,
+        "pooled": 302,
+        "shortest-half": 304
+      },
+      "source_generation_wall_seconds": {
+        "cadical195": 7.876966207999999,
+        "maplechrono": 7.474485926999932
+      },
+      "statuses": {
+        "alternative": "UNKNOWN",
+        "balanced-half": "UNKNOWN",
+        "cadical": "UNKNOWN",
+        "pooled": "UNKNOWN",
+        "shortest-half": "UNKNOWN"
+      }
+    }
+  }
+}
