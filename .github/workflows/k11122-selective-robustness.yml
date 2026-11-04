@@ -1,0 +1,144 @@
+name: K11122 selective-portfolio cross-backend robustness
+on:
+  workflow_dispatch:
+  push:
+    branches: ['research/k11122-selective-cross-backend-20261104']
+    paths:
+      - 'k11122/selective_backend_robustness.py'
+      - 'k11122/test_selective_backend_robustness.py'
+      - '.github/workflows/k11122-selective-robustness.yml'
+permissions:
+  contents: read
+concurrency:
+  group: k11122-selective-cross-backend-pilot
+  cancel-in-progress: false
+jobs:
+  controlled-four-case-cross-backend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 19
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pinned dependencies and complete semantic regression tests
+        run: |
+          mkdir -p evidence/bin evidence/source
+          python -m pip install python-sat==1.8.dev24 z3-solver==4.13.3.0
+          python -m pip freeze > evidence/dependencies.txt
+          python -m unittest discover -s k11122 -p 'test_*.py' -v > evidence/tests.log 2>&1 || { tail -n 160 evidence/tests.log; exit 1; }
+          tail -n 14 evidence/tests.log
+      - name: Strictly compile unmodified independent checker and scanners
+        run: |
+          g++ -O3 -std=c++17 -Wall -Wextra -Werror k11122/lasso_batch.cpp -o evidence/bin/lasso_batch
+          g++ -O3 -std=c++17 -Wall -Wextra -Werror k11122/lasso_quality.cpp -o evidence/bin/lasso_quality
+          g++ -O3 -std=c++17 k11122/verify.cpp -o evidence/bin/verify
+          sha256sum evidence/bin/lasso_batch evidence/bin/lasso_quality evidence/bin/verify k11122/lasso_batch.cpp k11122/lasso_quality.cpp k11122/verify.cpp > evidence/binary-hashes.txt
+          python k11122/merge_checkpoints.py --target 0 --output evidence/frozen-t0.json
+          python k11122/merge_checkpoints.py --target 3 --output evidence/frozen-t3.json
+          python - <<'PY'
+          import json
+          for t, expected in ((0,2701),(3,2181)):
+              m=json.load(open(f'evidence/frozen-t{t}.json'))['masks']
+              assert m==sorted(set(m)) and len(m)==expected
+          PY
+      - name: Same-certified-source four-case cross-backend factorial
+        run: |
+          /usr/bin/time -v -o evidence/matrix-wall-time.txt python k11122/selective_backend_robustness.py \
+            --output evidence/matrix \
+            --cases t0-b0,t0-b1,t3-b0,t3-b1 \
+            --source-seconds 4 --continuation-seconds 5 --seed 20261103 \
+            --scanner "$PWD/evidence/bin/lasso_batch" \
+            --scorer "$PWD/evidence/bin/lasso_quality" \
+            --verifier "$PWD/evidence/bin/verify" > evidence/matrix-stdout.log
+          cat evidence/matrix-stdout.log
+      - name: Independently re-audit every portfolio, resumption and best-policy score
+        run: |
+          python - <<'PY'
+          import json,sys,pathlib
+          sys.path.insert(0,'k11122')
+          from lasso_witness import audit, sha
+          from lasso_best import independently_check_best
+          from lasso_journal import check_committed
+          root=pathlib.Path('evidence/matrix')
+          summary=json.loads((root/'matched-backend-summary.json').read_text())
+          assert set(summary['tested_cases'])=={'t0-b0','t0-b1','t3-b0','t3-b1'}
+          table={}
+          for label in summary['tested_cases']:
+              data=json.loads((root/label/'case-results.json').read_text())
+              t,b=data['target'],data['branch']
+              assert data['source_trajectory_divergence']['actually_divergent']
+              cases={}
+              for mode in ('all','shortest-half','balanced-half'):
+                  folder=root/label/f'portfolio-{mode}'
+                  p=data['portfolios'][mode]
+                  audit_result=audit(folder)
+                  assert audit_result['status']=='CHECKED'
+                  assert audit_result['cnf_sha256']==p['formula_sha256']
+                  assert audit_result['witnesses']==p['deduplicated_witnesses']
+                  assert p['target']==t and p['branch']==b
+                  assert p['residuals']==(2701 if t==0 else 2181)
+                  cases[mode]={}
+                  for backend in ('cadical195','maplechrono'):
+                      dest=root/label/f'continue-{backend}-{mode}'
+                      met=json.loads((dest/'manifest.json').read_text())
+                      stats=json.loads((dest/'summary.json').read_text())
+                      checked=audit(dest)
+                      best=independently_check_best(dest)
+                      assert checked['status']=='CHECKED'
+                      assert checked['cnf_sha256']==met['sha256']['formula.cnf']
+                      assert check_committed(dest)['verified_witnesses']==met['witnesses']
+                      assert (met['target'],met['branch'],met['masks'])==(t,b,2701 if t==0 else 2181)
+                      assert met['imported']['resumed_from']['manifest_sha256']==sha(folder/'manifest.json')
+                      assert stats['inherited_witnesses']==p['deduplicated_witnesses']
+                      assert stats['status']=='UNKNOWN' and stats['finite_suite_candidates']==0
+                      assert best['status']=='INDEPENDENTLY_REPLAYED_HISTORICAL_BEST'
+                      assert best['quality']==stats['best_observed_raw_quality']
+                      assert stats['budget_scope']=='search' and 0<stats['elapsed_seconds']<=7
+                      cases[mode][backend]=dict(
+                          best_sampled_failing_masks=best['quality']['failing_residual_masks'],
+                          best_sampled_failed_sources=best['quality']['failed_connected_sources'],
+                          raw_models=stats['raw_models'],
+                          observed_conflicts=stats['observed_solver_effort']['conflicts'],
+                          inherited_clauses=stats['inherited_witnesses'],
+                          added_clauses=stats['new_witnesses'],
+                          active_seconds=stats['elapsed_seconds'],
+                          preparation_seconds=stats['preparation_seconds'],
+                          terminal_cnf_sha256=checked['cnf_sha256'])
+              table[label]=dict(
+                  actual_source_divergence=True,
+                  portfolio_counts={mode:data['portfolios'][mode]['deduplicated_witnesses']
+                                    for mode in cases},
+                  backend_trajectory_divergence={
+                      mode:data['continuation_backend_divergence'][mode]['actually_divergent']
+                      for mode in cases},
+                  continuations=cases)
+          output=dict(schema=1,same_source_per_case=True,source_active_seconds=4,
+                      continuation_active_seconds=5,
+                      target0_frozen_masks=2701,target3_frozen_masks=2181,
+                      cases=table,
+                      scientific_status='UNKNOWN, no finite-suite candidate or checked UNSAT',
+                      caution='one fixed seed per backend/case, 8th-model sampled historical quality, nonrandom graph partitions')
+          (pathlib.Path('evidence')/'independent-cross-backend-summary.json').write_text(
+              json.dumps(output,indent=2,sort_keys=True)+'\n')
+          print(json.dumps({
+              label:{mode:{backend:table[label]['continuations'][mode][backend]['best_sampled_failing_masks']
+                  for backend in ('cadical195','maplechrono')}
+                  for mode in ('all','shortest-half','balanced-half')}
+              for label in table},sort_keys=True))
+          PY
+      - name: Retain immutable source, full CNFs, auditable hashes and full logs
+        if: always()
+        run: |
+          cp k11122/selective_backend_robustness.py k11122/test_selective_backend_robustness.py \
+            k11122/lasso_portfolio.py k11122/lasso_clause_selector.py \
+            k11122/lasso_witness.py k11122/lasso_search.py \
+            .github/workflows/k11122-selective-robustness.yml evidence/source/
+          echo "$GITHUB_SHA" > evidence/commit.txt
+          find evidence -type f ! -name SHA256SUMS ! -name .owner.lock -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k11122-selective-cross-backend-evidence
+          path: evidence/
+          retention-days: 30
