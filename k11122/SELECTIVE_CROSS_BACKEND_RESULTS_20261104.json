@@ -1,0 +1,169 @@
+{
+  "schema": 1,
+  "experiment": "K11122 matched selective necessary-lasso portfolios across both continuation backends",
+  "date": "2026-11-04",
+  "tested_code_commit": "172f039767657c5f83ffff8bd9e36bface2f5ce3",
+  "github_actions_run": 41811555234,
+  "evidence_artifact_id": 13312369356,
+  "evidence_zip_sha256": "6321080266616aca088462f50e3c0d7d5d2761862dfc57dddd03e2fdb83b037d",
+  "evidence_zip_indexed_files_verified": 8169,
+  "tests_passed": 109,
+  "source_search_seconds_per_backend_case": 4,
+  "continuation_search_budget_seconds": 5,
+  "continuation_seed": 20261103,
+  "scoring": "best historical raw SAT table sampled on first and every eighth model; independent Python replay; not terminal-CNF SAT",
+  "counts": {
+    "cases": 4,
+    "continuations": 24,
+    "shortest_half_better_than_full": 6,
+    "balanced_half_better_than_full": 5,
+    "comparisons": 8,
+    "maplechrono_lower_score_than_cadical": 12,
+    "matched_backend_comparisons": 12,
+    "finite_suite_candidates": 0
+  },
+  "results": {
+    "t0-b0": {
+      "actual_source_divergence": true,
+      "all_statuses": [
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN"
+      ],
+      "best_sampled_failed_masks": {
+        "cadical195": {
+          "all": 741,
+          "balanced-half": 658,
+          "shortest-half": 764
+        },
+        "maplechrono": {
+          "all": 516,
+          "balanced-half": 529,
+          "shortest-half": 423
+        }
+      },
+      "continuation_divergence": {
+        "all": true,
+        "balanced-half": true,
+        "shortest-half": true
+      },
+      "finite_suite_candidates": 0,
+      "input_unique_clauses": 41881,
+      "selected_clause_counts": {
+        "all": 41881,
+        "balanced-half": 20941,
+        "shortest-half": 20941
+      }
+    },
+    "t0-b1": {
+      "actual_source_divergence": true,
+      "all_statuses": [
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN"
+      ],
+      "best_sampled_failed_masks": {
+        "cadical195": {
+          "all": 720,
+          "balanced-half": 812,
+          "shortest-half": 681
+        },
+        "maplechrono": {
+          "all": 538,
+          "balanced-half": 461,
+          "shortest-half": 459
+        }
+      },
+      "continuation_divergence": {
+        "all": true,
+        "balanced-half": true,
+        "shortest-half": true
+      },
+      "finite_suite_candidates": 0,
+      "input_unique_clauses": 45803,
+      "selected_clause_counts": {
+        "all": 45803,
+        "balanced-half": 22902,
+        "shortest-half": 22902
+      }
+    },
+    "t3-b0": {
+      "actual_source_divergence": true,
+      "all_statuses": [
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN"
+      ],
+      "best_sampled_failed_masks": {
+        "cadical195": {
+          "all": 484,
+          "balanced-half": 479,
+          "shortest-half": 427
+        },
+        "maplechrono": {
+          "all": 265,
+          "balanced-half": 332,
+          "shortest-half": 328
+        }
+      },
+      "continuation_divergence": {
+        "all": true,
+        "balanced-half": true,
+        "shortest-half": true
+      },
+      "finite_suite_candidates": 0,
+      "input_unique_clauses": 41881,
+      "selected_clause_counts": {
+        "all": 41881,
+        "balanced-half": 20941,
+        "shortest-half": 20941
+      }
+    },
+    "t3-b1": {
+      "actual_source_divergence": true,
+      "all_statuses": [
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN",
+        "UNKNOWN"
+      ],
+      "best_sampled_failed_masks": {
+        "cadical195": {
+          "all": 540,
+          "balanced-half": 413,
+          "shortest-half": 515
+        },
+        "maplechrono": {
+          "all": 331,
+          "balanced-half": 268,
+          "shortest-half": 251
+        }
+      },
+      "continuation_divergence": {
+        "all": true,
+        "balanced-half": true,
+        "shortest-half": true
+      },
+      "finite_suite_candidates": 0,
+      "input_unique_clauses": 40359,
+      "selected_clause_counts": {
+        "all": 40359,
+        "balanced-half": 20180,
+        "shortest-half": 20180
+      }
+    }
+  },
+  "scientific_classification": "UNKNOWN for both destination orbits; no independently checked positive or negative proof",
+  "caveat": "one fixed seed and one budget; backend effects are observational, not statistical proof of superiority"
+}
