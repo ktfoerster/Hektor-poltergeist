@@ -151,7 +151,7 @@ def run_one(output, target, branch, backend, seconds, seed,
 
 
 def case(root, target, branch, seed, source_seconds,
-         continue_seconds, scanner, scorer, verifier):
+         continue_seconds, scanner, scorer, verifier, selective_modes=False):
     label = f"t{target}-b{branch}"
     folder = root / label
     folder.mkdir()
@@ -208,13 +208,40 @@ def case(root, target, branch, seed, source_seconds,
         chosen_sources=[p.name for p in chosen],
         source_audit_seconds=report["portfolio_construction_seconds"],
         **pooled)
+    if selective_modes:
+        report["selective_portfolios"] = {}
+        for selection in ("lossless", "shortest-half", "balanced-half"):
+            started = time.monotonic()
+            result = build(folder / ("portfolio-" + selection), chosen,
+                           target, branch, selection=selection)
+            if (result["status"] != "INDEPENDENTLY_AUDITED_PORTFOLIO" or
+                    result["target"] != target or result["branch"] != branch or
+                    result["residuals"] != report["frozen_masks"] or
+                    result["unique_before_selection"] != pooled["deduplicated_witnesses"] or
+                    result["deduplicated_witnesses"] <= 0 or
+                    result["deduplicated_witnesses"] > pooled["deduplicated_witnesses"]):
+                raise RuntimeError("selective portfolio changed an input domain or lost soundness")
+            if (selection == "lossless") != result["exact_equivalence_to_full"]:
+                raise RuntimeError("incorrect selection equivalence claim")
+            if selection.endswith("half") and result["deduplicated_witnesses"] > (
+                    pooled["deduplicated_witnesses"] + 1) // 2:
+                raise RuntimeError("half-size clause limit ignored")
+            report["selective_portfolios"][selection] = dict(
+                construction_and_audit_seconds=time.monotonic() - started,
+                **result)
+            save(folder / "case-progress.json", report)
     save(folder / "case-progress.json", report)
     # All continuations use the exact SAME CaDiCaL195 backend, one-first-walk
     # strategy, seed, clock and search budget. The only intended comparison
     # variable is the independently certified starting CNF clauses.
-    for name, source in (("cadical", folder / "source-cadical195"),
+    continuation_arms = [("cadical", folder / "source-cadical195"),
                          ("alternative", chosen[1]),
-                         ("pooled", portfolio)):
+                         ("pooled", portfolio)]
+    if selective_modes:
+        continuation_arms.extend([
+            ("shortest-half", folder / "portfolio-shortest-half"),
+            ("balanced-half", folder / "portfolio-balanced-half")])
+    for name, source in continuation_arms:
         info = run_one(folder / f"continue-{name}", target, branch,
                        "cadical195", continue_seconds, seed,
                        scanner, scorer, verifier,
@@ -264,6 +291,8 @@ def main():
     p.add_argument("--seed", type=int, default=20261103)
     p.add_argument("--cases", default="all", choices=(
         "all", "t0-b0", "t0-b1", "t3-b0", "t3-b1"))
+    p.add_argument("--selective-modes", action="store_true",
+                   help="compare full pooling against shortest/balanced half and lossless pruning")
     args = p.parse_args()
     if (not 0 < args.source_seconds <= 45 or
             not 0 < args.continuation_seconds <= 45 or
@@ -282,13 +311,15 @@ def main():
     report = dict(
         schema=1, source_seconds=args.source_seconds,
         continuation_seconds=args.continuation_seconds, seed=args.seed,
+        selective_modes=args.selective_modes,
         cases={}, semantic_scope="one-bit source-reachable K11122; frozen strict masks",
         interpretation="no one-bit resilience theorem; no uncertified status promoted")
     started = time.monotonic()
     for target, branch in cases:
         item = case(root, target, branch, args.seed,
                     args.source_seconds, args.continuation_seconds,
-                    scanner, scorer, verifier)
+                    scanner, scorer, verifier,
+                    selective_modes=args.selective_modes)
         report["cases"][f"t{target}-b{branch}"] = item
         save(root / "matrix-checkpoint.json", report)
     report["total_wall_seconds"] = time.monotonic() - started

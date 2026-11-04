@@ -17,13 +17,16 @@ from pathlib import Path
 import shutil
 
 from lasso_witness import audit, base_clauses, checked_clause, selector_rows, sha
+from lasso_clause_selector import select_clauses
 
 
 def canonical(obj):
     return json.dumps(obj, sort_keys=True, separators=(",", ":")) + "\n"
 
 
-def build(output, sources, expected_target=None, expected_branch=None):
+def build(output, sources, expected_target=None, expected_branch=None, selection="all"):
+    if type(selection) is not str or selection not in ("all", "lossless", "shortest-half", "balanced-half"):
+        raise ValueError("unsupported portfolio selection mode")
     if not isinstance(sources, (list, tuple)) or len(sources) < 2 or len(sources) > 12:
         raise ValueError("portfolio needs between 2 and 12 independent checkpoint paths")
     if len({str(Path(x).resolve(strict=True)) for x in sources}) != len(sources):
@@ -67,6 +70,9 @@ def build(output, sources, expected_target=None, expected_branch=None):
         [[*key, [[action, var] for action, var in choices]]
          for key, choices in rows.items()]) + "\n")
     selected, per_source = set(), []
+    pending = []
+    subsumed = {}
+    selected_mask_count = None
     hashes = hashlib.sha256()
     count = len(clauses)
     selected_count = 0
@@ -82,7 +88,7 @@ def build(output, sources, expected_target=None, expected_branch=None):
             raw = (" ".join(map(str, clause)) + " 0\n").encode()
             formula.write(raw)
             hashes.update(raw)
-        for source in checked:
+        for source_index, source in enumerate(checked):
             records = duplicated = 0
             with (source["path"] / "witnesses.jsonl").open() as f:
                 for line in f:
@@ -96,9 +102,14 @@ def build(output, sources, expected_target=None, expected_branch=None):
                         duplicated += 1
                         continue
                     selected.add(key)
-                    append_clause(clause)
-                    saved.write(canonical(item))
-                    selected_count += 1
+                    if selection == "all":
+                        append_clause(clause)
+                        saved.write(canonical(item))
+                        selected_count += 1
+                    else:
+                        pending.append(dict(clause=tuple(clause), item=item,
+                                            source=source_index,
+                                            mask=item["witness"]["mask"]))
             if (records != source["audit"]["witnesses"] or
                     sha(source["path"] / "witnesses.jsonl") != source["witness_sha256"] or
                     sha(source["path"] / "manifest.json") != source["manifest_sha256"] or
@@ -116,6 +127,18 @@ def build(output, sources, expected_target=None, expected_branch=None):
                 duplicate_clauses=duplicated,
                 independently_checked_source_audit=source["audit"],
             ))
+        if selection != "all":
+            original_unique = sum(item["newly_contributed_necessary_clauses"]
+                                  for item in per_source)
+            if len(pending) != original_unique:
+                raise RuntimeError("incomplete selectable witness stream")
+            kept, subsumed = select_clauses(pending, selection, len(checked))
+            for index, item in enumerate(pending):
+                if index in kept:
+                    append_clause(item["clause"])
+                    saved.write(canonical(item["item"]))
+                    selected_count += 1
+            selected_mask_count = len({pending[i]["mask"] for i in kept})
         formula.flush()
         os.fsync(formula.fileno())
         saved.flush()
@@ -125,8 +148,23 @@ def build(output, sources, expected_target=None, expected_branch=None):
         shutil.copyfileobj(src, dst)
         dst.flush()
         os.fsync(dst.fileno())
+    unique_before_selection = sum(x["newly_contributed_necessary_clauses"]
+                                  for x in per_source)
+    if selection == "all" and selected_count != unique_before_selection:
+        raise RuntimeError("full portfolio unexpectedly omitted certificates")
+    if selection != "all":
+        with (root / "dominance.jsonl").open("w") as proof:
+            for discarded, dominating in sorted(subsumed.items()):
+                proof.write(canonical({"discarded_index": discarded,
+                                       "retained_dominator_index": dominating}))
     imported = {
         "portfolio": dict(schema=1, source_count=len(checked), sources=per_source,
+                          selection=selection, unique_before_selection=unique_before_selection,
+                          selected_witnesses=selected_count,
+                          subsumed_clauses=len(subsumed),
+                          other_selective_omissions=unique_before_selection-selected_count-len(subsumed),
+                          exact_equivalence_to_full=(selection in ("all", "lossless")),
+                          builder_sha256=sha(Path(__file__).with_name("lasso_clause_selector.py")),
                           deduplicated_witnesses=selected_count,
                           raw_input_witnesses=sum(x["original_checked_witnesses"] for x in per_source),
                           semantic_scope="same target/branch/masks, independently necessary source-reachable lassos only",
@@ -148,8 +186,9 @@ def build(output, sources, expected_target=None, expected_branch=None):
                       portfolio_source_count=len(checked)),
         commit=os.environ.get("GITHUB_SHA"))
     meta["sha256"] = {name: sha(root / name) for name in
-                      ("formula.cnf", "selectors.json", "masks.json",
-                       "masks.txt", "witnesses.jsonl")}
+                      (("formula.cnf", "selectors.json", "masks.json",
+                       "masks.txt", "witnesses.jsonl") +
+                       (("dominance.jsonl",) if selection != "all" else ()))}
     (root / "manifest.json").write_text(json.dumps(meta, sort_keys=True, indent=2) + "\n")
     result = audit(root)
     if (result["status"] != "CHECKED" or
@@ -163,7 +202,12 @@ def build(output, sources, expected_target=None, expected_branch=None):
         source_count=len(checked), source_details=per_source,
         input_witnesses=imported["portfolio"]["raw_input_witnesses"],
         deduplicated_witnesses=selected_count,
-        duplicates_eliminated=imported["portfolio"]["raw_input_witnesses"]-selected_count,
+        duplicates_eliminated=imported["portfolio"]["raw_input_witnesses"]-unique_before_selection,
+        selection=selection, unique_before_selection=unique_before_selection,
+        subsumed_clauses=len(subsumed),
+        other_selective_omissions=unique_before_selection-selected_count-len(subsumed),
+        exact_equivalence_to_full=(selection in ("all", "lossless")),
+        selected_mask_coverage=selected_mask_count,
         variables=nvars, clauses=count, formula_sha256=result["cnf_sha256"],
         scope="necessary source-reachable lasso clauses, no positive or negative graph claim")
     (root / "portfolio-summary.json").write_text(json.dumps(report, sort_keys=True, indent=2) + "\n")
@@ -176,8 +220,11 @@ def main():
     p.add_argument("--sources", nargs="+", required=True, type=Path)
     p.add_argument("--target", type=int, choices=(0, 3), required=True)
     p.add_argument("--branch", type=int, choices=(0, 1), required=True)
+    p.add_argument("--selection", choices=("all", "lossless", "shortest-half", "balanced-half"),
+                   default="all")
     args = p.parse_args()
-    print(json.dumps(build(args.output, args.sources, args.target, args.branch),
+    print(json.dumps(build(args.output, args.sources, args.target, args.branch,
+                           selection=args.selection),
                      sort_keys=True, indent=2))
 
 

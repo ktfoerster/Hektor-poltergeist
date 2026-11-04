@@ -1,0 +1,163 @@
+name: K11122 four-case selective necessary-clause portfolio pilot
+on:
+  workflow_dispatch:
+  push:
+    branches: ['research/k11122-selective-pooling-20261104']
+    paths:
+      - 'k11122/lasso_clause_selector.py'
+      - 'k11122/lasso_portfolio.py'
+      - 'k11122/portfolio_matrix.py'
+      - 'k11122/lasso_search.py'
+      - 'k11122/lasso_generation_search.py'
+      - 'k11122/test_lasso_selective.py'
+      - '.github/workflows/k11122-selective-pooling.yml'
+permissions:
+  contents: read
+concurrency:
+  group: k11122-selective-four-cases
+  cancel-in-progress: false
+jobs:
+  complete-independent-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pinned solver dependencies and all original/new regression tests
+        run: |
+          mkdir -p evidence/bin evidence/source
+          python -m pip install python-sat==1.8.dev24 z3-solver==4.13.3.0
+          python -m pip freeze > evidence/dependencies.txt
+          python -m unittest discover -s k11122 -p 'test_*.py' -v > evidence/tests.log 2>&1 || { tail -n 180 evidence/tests.log; exit 1; }
+          tail -n 14 evidence/tests.log
+      - name: Rebuild unchanged full-graph verifier and independent C++ witnesses/scorer
+        run: |
+          g++ -O3 -std=c++17 -Wall -Wextra -Werror k11122/lasso_batch.cpp -o evidence/bin/lasso_batch
+          g++ -O3 -std=c++17 -Wall -Wextra -Werror k11122/lasso_quality.cpp -o evidence/bin/lasso_quality
+          g++ -O3 -std=c++17 k11122/verify.cpp -o evidence/bin/verify
+          sha256sum evidence/bin/* k11122/verify.cpp k11122/lasso_batch.cpp k11122/lasso_quality.cpp > evidence/binary-hashes.txt
+          python k11122/merge_checkpoints.py --target 0 --output evidence/frozen-t0.json
+          python k11122/merge_checkpoints.py --target 3 --output evidence/frozen-t3.json
+          python - <<'PY'
+          import json
+          for t,n in ((0,2701),(3,2181)):
+              masks=json.load(open(f'evidence/frozen-t{t}.json'))['masks']
+              assert len(masks)==n and masks==sorted(set(masks))
+          PY
+      - name: Same audited two-source checkpoints for full, lossless, shortest-half, balanced-half in all four cases
+        run: |
+          /usr/bin/time -v -o evidence/matrix-walltime.txt \
+            python -u k11122/portfolio_matrix.py \
+            --output evidence/matrix \
+            --scanner "$PWD/evidence/bin/lasso_batch" \
+            --scorer "$PWD/evidence/bin/lasso_quality" \
+            --verifier "$PWD/evidence/bin/verify" \
+            --source-seconds 5 --continuation-seconds 7 \
+            --seed 20261103 --cases all --selective-modes \
+            > evidence/matrix-stdout.jsonl
+      - name: Independently verify complete CNFs, source identity and each selection/subsumption claim
+        run: |
+          python - <<'PY'
+          import json,pathlib,sys
+          sys.path.insert(0,'k11122')
+          from lasso_witness import audit,sha
+          from lasso_best import independently_check_best
+          from lasso_journal import check_committed
+          root=pathlib.Path('evidence/matrix')
+          matrix=json.load(open(root/'matrix-results.json'))
+          assert matrix['selective_modes'] is True
+          assert matrix['source_seconds']==5 and matrix['continuation_seconds']==7
+          assert set(matrix['cases'])=={'t0-b0','t0-b1','t3-b0','t3-b1'}
+          summary={}
+          for label,item in sorted(matrix['cases'].items()):
+              t,b=item['target'],item['branch']
+              expected=2701 if t==0 else 2181
+              assert item['frozen_masks']==expected and item['genuine_policy_hash_divergence']
+              case=root/label
+              full=item['portfolio']
+              full_dir=case/'portfolio'
+              fullmeta=json.load(open(full_dir/'manifest.json'))
+              assert fullmeta['imported']['portfolio']['selection']=='all'
+              assert audit(full_dir)['status']=='CHECKED'
+              fullclause=[tuple(json.loads(x)['clause']) for x in (full_dir/'witnesses.jsonl').read_text().splitlines()]
+              fullset=set(fullclause)
+              assert len(fullclause)==len(fullset)==full['deduplicated_witnesses']
+              filtered={}
+              for mode in ('lossless','shortest-half','balanced-half'):
+                  sel=item['selective_portfolios'][mode]
+                  path=case/f'portfolio-{mode}'
+                  a=audit(path)
+                  meta=json.load(open(path/'manifest.json'))
+                  assert a['status']=='CHECKED' and a['cnf_sha256']==sel['formula_sha256']
+                  assert (meta['target'],meta['branch'],meta['masks'])==(t,b,expected)
+                  assert sel['unique_before_selection']==len(fullclause)
+                  assert meta['imported']['portfolio']['sources']==fullmeta['imported']['portfolio']['sources']
+                  assert meta['imported']['portfolio']['selection']==mode
+                  assert sel['deduplicated_witnesses']==a['witnesses']
+                  clauses=[tuple(json.loads(x)['clause']) for x in (path/'witnesses.jsonl').read_text().splitlines()]
+                  subset=set(clauses)
+                  assert len(subset)==len(clauses) and subset<=fullset
+                  if mode.endswith('half'):
+                      assert 0 < len(clauses) <= (len(fullclause)+1)//2
+                      assert not sel['exact_equivalence_to_full']
+                  else:
+                      assert sel['exact_equivalence_to_full']
+                  dominance=[json.loads(x) for x in (path/'dominance.jsonl').read_text().splitlines()]
+                  assert len(dominance)==sel['subsumed_clauses']
+                  for proof in dominance:
+                      weaker=fullclause[proof['discarded_index']]
+                      stronger=fullclause[proof['retained_dominator_index']]
+                      assert set(stronger)<=set(weaker)
+                      if mode=='lossless':
+                          assert stronger in subset
+                  assert len(clauses)+sel['subsumed_clauses']+sel['other_selective_omissions']==len(fullclause)
+                  filtered[mode]={'retained':len(clauses),'subsumed':len(dominance),
+                      'witness_masks':sel['selected_mask_coverage'],
+                      'prep_seconds':item['selective_portfolios'][mode]['construction_and_audit_seconds']}
+              comp=item['comparison']
+              assert set(comp)=={'cadical','alternative','pooled','shortest-half','balanced-half'}
+              for name,info in comp.items():
+                  folder=case/f'continue-{name}'
+                  a=audit(folder)
+                  m=json.load(open(folder/'manifest.json'))
+                  q=independently_check_best(folder)
+                  assert a['status']=='CHECKED' and m['sha256']['formula.cnf']==a['cnf_sha256']
+                  assert check_committed(folder)['verified_witnesses']==a['witnesses']
+                  assert (m['n'],m['target'],m['branch'],m['masks'])==(7,t,b,expected)
+                  assert info['active_search_seconds']>0 and info['active_search_seconds']<11
+                  assert info['total_certified']==info['imported']+info['newly_certified']
+                  starting={'cadical':'source-cadical195',
+                            'alternative':item['portfolio']['chosen_sources'][1],
+                            'pooled':'portfolio',
+                            'shortest-half':'portfolio-shortest-half',
+                            'balanced-half':'portfolio-balanced-half'}[name]
+                  assert m['imported']['resumed_from']['manifest_sha256']==sha(case/starting/'manifest.json')
+                  assert m['imported']['resumed_from']['formula_sha256']==sha(case/starting/'formula.cnf')
+                  if info['raw_models']>0:
+                      assert q['status']=='INDEPENDENTLY_REPLAYED_HISTORICAL_BEST'
+                      assert info['best_sampled_failing_masks']==q['quality']['failing_residual_masks']
+                  assert info['finite_suite_candidates']==0 and info['status']=='UNKNOWN'
+              summary[label]={'full_clauses':len(fullclause),'filtered':filtered,
+                   'best_sampled_failing_masks':{k:v['best_sampled_failing_masks'] for k,v in comp.items()},
+                   'raw_models':{k:v['raw_models'] for k,v in comp.items()},
+                   'statuses':{k:v['status'] for k,v in comp.items()},
+                   'source_generation_wall_seconds':{k:v['external_wall_seconds'] for k,v in item['sources'].items()},
+                   'full_portfolio_construction_seconds':item['portfolio_construction_seconds']}
+          summary['scope']='Historical best of periodically sampled raw SAT policies; no terminal SAT or graph classification.'
+          (pathlib.Path('evidence')/'four-case-selective-comparison.json').write_text(json.dumps(summary,sort_keys=True,indent=2)+'\n')
+          print(json.dumps(summary,sort_keys=True))
+          PY
+      - name: Preserve complete source, exact CNFs, witness traces, selector maps, policy scores and hashes
+        if: always()
+        run: |
+          cp k11122/lasso_clause_selector.py k11122/lasso_portfolio.py k11122/portfolio_matrix.py k11122/lasso_search.py k11122/lasso_generation_search.py k11122/test_lasso_selective.py .github/workflows/k11122-selective-pooling.yml evidence/source/
+          echo "$GITHUB_SHA" > evidence/commit.txt
+          find evidence -type f ! -name SHA256SUMS ! -name .owner.lock -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k11122-selective-pooling-evidence
+          path: evidence/
+          retention-days: 30

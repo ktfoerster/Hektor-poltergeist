@@ -69,7 +69,7 @@ def checked_policy(payload, reference_rows):
 
 
 def source_hashes():
-    names = ("lasso_search.py", "lasso_portfolio.py", "lasso_phase_preferences.py", "lasso_best.py", "lasso_quality.cpp", "lasso_policy_quality.py", "lasso_selection_schedule.py", "lasso_transfer.py", "lasso_transfer_session.py", "lasso_effort.py", "lasso_witness.py", "lasso_batch.cpp", "lasso_journal.py", "lasso_checkpoint.py", "sat_search.py",
+    names = ("lasso_search.py", "lasso_portfolio.py", "lasso_clause_selector.py", "lasso_phase_preferences.py", "lasso_best.py", "lasso_quality.cpp", "lasso_policy_quality.py", "lasso_selection_schedule.py", "lasso_transfer.py", "lasso_transfer_session.py", "lasso_effort.py", "lasso_witness.py", "lasso_batch.cpp", "lasso_journal.py", "lasso_checkpoint.py", "sat_search.py",
              "merge_checkpoints.py", "verify.cpp", "proof_cnf.py")
     return {name: sha(Path(__file__).with_name(name)) for name in names}
 
