@@ -1,0 +1,151 @@
+name: K11122 preregistered backend-aware clause-selection holdout
+on:
+  workflow_dispatch:
+  push:
+    branches: ['research/k11122-preregistered-holdout-20261104']
+    paths:
+      - 'k11122/holdout_backend_selection.py'
+      - 'k11122/test_holdout_backend_selection.py'
+      - 'k11122/PREREGISTERED_HOLDOUT.md'
+      - '.github/workflows/k11122-preregistered-holdout.yml'
+permissions:
+  contents: read
+concurrency:
+  group: k11122-preregistered-holdout
+  cancel-in-progress: false
+jobs:
+  paired-heldout:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pinned SAT backends, full semantic and preregistration tests
+        run: |
+          mkdir -p evidence/bin evidence/source
+          python -m pip install python-sat==1.8.dev24 z3-solver==4.13.3.0
+          python -m pip freeze > evidence/dependencies.txt
+          python -m unittest discover -s k11122 -p 'test_*.py' -v > evidence/tests.log 2>&1 || { tail -n 200 evidence/tests.log; exit 1; }
+          tail -n 14 evidence/tests.log
+      - name: Compile unchanged exhaustive verifier and separate untrusted scanners
+        run: |
+          g++ -O3 -std=c++17 -Wall -Wextra -Werror k11122/lasso_batch.cpp -o evidence/bin/lasso_batch
+          g++ -O3 -std=c++17 -Wall -Wextra -Werror k11122/lasso_quality.cpp -o evidence/bin/lasso_quality
+          g++ -O3 -std=c++17 k11122/verify.cpp -o evidence/bin/verify
+          sha256sum evidence/bin/lasso_batch evidence/bin/lasso_quality evidence/bin/verify k11122/lasso_batch.cpp k11122/lasso_quality.cpp k11122/verify.cpp > evidence/binary-hashes.txt
+          python k11122/merge_checkpoints.py --target 0 --output evidence/frozen-t0.json
+          python k11122/merge_checkpoints.py --target 3 --output evidence/frozen-t3.json
+          python - <<'PY'
+          import json
+          for target, expected in ((0,2701),(3,2181)):
+              masks=json.load(open(f'evidence/frozen-t{target}.json'))['masks']
+              assert len(masks)==expected and masks==sorted(set(masks))
+          PY
+      - name: Precommitted training rule applied to genuinely new phases and seed
+        run: |
+          /usr/bin/time -v -o evidence/holdout-wall-time.txt \
+            python k11122/holdout_backend_selection.py \
+              --output evidence/holdout \
+              --cases t0-b0,t0-b1,t3-b0,t3-b1 \
+              --source-seconds 4 --continue-seconds 5 --control-seconds 1 \
+              --scanner "$PWD/evidence/bin/lasso_batch" \
+              --scorer "$PWD/evidence/bin/lasso_quality" \
+              --verifier "$PWD/evidence/bin/verify" \
+              > evidence/holdout-stdout.log
+          tail -n 2 evidence/holdout-stdout.log
+      - name: Second independent validation of all sources, portfolios, policies and terminal CNFs
+        run: |
+          python - <<'PY'
+          import hashlib,json,pathlib,sys
+          sys.path.insert(0,'k11122')
+          from lasso_witness import audit,sha
+          from lasso_best import independently_check_best
+          from lasso_journal import check_committed
+          from holdout_backend_selection import locked_training,BACKENDS,MODES,CASES
+          root=pathlib.Path('evidence/holdout')
+          plan=json.loads((root/'precommitted-selection-plan.json').read_text())
+          expected=locked_training()
+          assert plan['fixed_choices']==expected['fixed_choices']
+          assert plan['training_sha256']==expected['training_sha256']
+          assert plan['source_commit']==(pathlib.Path('evidence/commit.txt').read_text().strip() if (pathlib.Path('evidence/commit.txt').exists()) else plan['source_commit'])
+          report=json.loads((root/'holdout-results.json').read_text())
+          assert report['precommitted_plan_sha256']==sha(root/'precommitted-selection-plan.json')
+          assert report['preregistered_training_sha256']==expected['training_sha256']
+          assert report['holdout_phase_changed']=={'source':20261104,'continuation':20261105}
+          assert report['holdout_seed']==20261104
+          assert set(report['report']['cells'])=={f't{t}-b{b}' for t,b in CASES}
+          independently_checked=0
+          total_candidates=0
+          for target,branch in CASES:
+              name=f't{target}-b{branch}'
+              case=root/name
+              data=json.loads((case/'case-results.json').read_text())
+              assert data['source_phase_sha256']!=data['continuation_phase_sha256']
+              assert data['preregistered_choices']==plan['fixed_choices'][name]
+              for source in ('phase-free-control','source-cadical195','source-maplechrono'):
+                  bundle=case/source
+                  cert=audit(bundle)
+                  ledger=check_committed(bundle)
+                  meta=json.loads((bundle/'manifest.json').read_text())
+                  assert cert['status']=='CHECKED' and cert['cnf_sha256']==meta['sha256']['formula.cnf']
+                  assert ledger['verified_witnesses']==meta['witnesses']
+                  assert (meta['target'],meta['branch'],meta['masks'])==(target,branch,2701 if target==0 else 2181)
+                  independently_checked+=1
+              for mode in MODES:
+                  port=case/f'portfolio-{mode}'
+                  a=audit(port)
+                  p=json.loads((port/'portfolio-summary.json').read_text())
+                  assert a['status']=='CHECKED' and a['cnf_sha256']==p['formula_sha256']
+                  assert a['witnesses']==p['deduplicated_witnesses']
+                  independently_checked+=1
+                  for backend in BACKENDS:
+                      bundle=case/f'continuation-{backend}-{mode}'
+                      cert=audit(bundle)
+                      ledger=check_committed(bundle)
+                      best=independently_check_best(bundle)
+                      meta=json.loads((bundle/'manifest.json').read_text())
+                      stats=json.loads((bundle/'summary.json').read_text())
+                      assert cert['status']=='CHECKED' and ledger['verified_witnesses']==meta['witnesses']
+                      assert cert['cnf_sha256']==meta['sha256']['formula.cnf']
+                      assert (meta['target'],meta['branch'],meta['masks'])==(target,branch,2701 if target==0 else 2181)
+                      assert meta['imported']['resumed_from']['manifest_sha256']==sha(port/'manifest.json')
+                      assert stats['inherited_witnesses']==p['deduplicated_witnesses']
+                      assert stats['quality_scored_raw_models']==stats['raw_models']
+                      assert stats['budget_scope']=='search' and 0<stats['elapsed_seconds']<8
+                      assert stats['status']=='UNKNOWN' and stats['finite_suite_candidates']==0
+                      assert best['status']=='INDEPENDENTLY_REPLAYED_HISTORICAL_BEST'
+                      assert best['quality']==stats['best_observed_raw_quality']
+                      assert data['continuations'][backend][mode]['source_cnf_sha256']==sha(port/'formula.cnf')
+                      independently_checked+=1
+                      total_candidates+=stats['finite_suite_candidates']
+          assert independently_checked==48,(independently_checked,48)
+          assert total_candidates==0
+          assert report['report']['complete_finite_suite_candidates']==0
+          assert report['report']['nontrivial_selected_half_comparisons']==7
+          out=dict(schema=1,independent_bundles_rechecked=independently_checked,
+                   preregistered_fixed_choices=plan['fixed_choices'],
+                   training_git_blob=plan['training_git_blob_sha1'],
+                   training_sha256=plan['training_sha256'],
+                   final_report=report['report'],
+                   all_statuses='UNKNOWN',
+                   scientific_classification='UNKNOWN both target orbits')
+          pathlib.Path('evidence/independent-holdout-summary.json').write_text(json.dumps(out,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(report['report'],sort_keys=True))
+          PY
+      - name: Retain exact pinned training, all CNFs, witness and provenance streams
+        if: always()
+        run: |
+          cp k11122/holdout_backend_selection.py k11122/test_holdout_backend_selection.py k11122/lasso_phase_preferences.py \
+             k11122/lasso_portfolio.py k11122/lasso_clause_selector.py k11122/lasso_witness.py \
+             k11122/SELECTIVE_CROSS_BACKEND_RESULTS_20261104.json \
+             .github/workflows/k11122-preregistered-holdout.yml evidence/source/
+          echo "$GITHUB_SHA" > evidence/commit.txt
+          find evidence -type f ! -name SHA256SUMS ! -name .owner.lock -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k11122-preregistered-holdout-evidence
+          path: evidence/
+          retention-days: 30
