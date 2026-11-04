@@ -1,0 +1,150 @@
+{
+  "schema": 1,
+  "title": "K11122 preregistered backend-aware clause-selection holdout",
+  "date": "2026-11-04",
+  "experiment_status": "HOSTED_SUCCESS_AND_INDEPENDENT_AUDITS_PASSED",
+  "code_commit": "b7a6a50fe46174bccdc30a040cfa186aeaa039a0",
+  "workflow_run": 41815045982,
+  "evidence_artifact_id": 13314726995,
+  "evidence_zip_sha256": "50640e3665cee09486e59847e1ebb051ce363555ae86920ff7ce7d7e152ee9d0",
+  "evidence_zip_members_crc_checked": 7220,
+  "evidence_zip_files_sha256_checked": 7219,
+  "tests_passed": 113,
+  "independent_bundles_audited": 48,
+  "training_provenance": {
+    "pinned_git_blob_sha1": "8c56fffbefb2d8c8117db65a0ffc45dc0ba91454",
+    "training_sha256": "06046ad17386a81656b2f44c653503ff1caf0639ab99b3bbd89661a7d4872864",
+    "training_ci_run": 41811555234,
+    "training_commit": "172f039767657c5f83ffff8bd9e36bface2f5ce3"
+  },
+  "heldout_source_phase": {
+    "variant": "hash",
+    "salt": 20261104
+  },
+  "heldout_continuation_phase": {
+    "variant": "hash",
+    "salt": 20261105
+  },
+  "heldout_seed": 20261104,
+  "preregistered_primary_comparison": {
+    "improved_on_full": 5,
+    "worse_than_full": 2,
+    "tied_full": 1,
+    "nontrivial_half_choices": 7
+  },
+  "exploratory_posthoc_comparison": {
+    "shortest_half_better_than_full": 7,
+    "balanced_half_better_than_full": 7,
+    "total_pairs": 8,
+    "caveat": "The half-variant success counts are observed after evaluating all arms; they are not preregistered wins."
+  },
+  "actual_phase_divergence_cases": 4,
+  "actual_source_backend_divergence_cases": 4,
+  "continued_searches": 24,
+  "complete_finite_suite_candidates": 0,
+  "source_and_search_budgets": {
+    "source_active_seconds": 4,
+    "continuation_active_seconds": 5,
+    "phase_free_control_active_seconds": 1
+  },
+  "per_arm_scores": [
+    {
+      "cell": "t0-b0",
+      "backend": "cadical195",
+      "trained_choice": "balanced-half",
+      "chosen_score": 693,
+      "full_score": 754,
+      "all_scores": {
+        "all": 754,
+        "balanced-half": 693,
+        "shortest-half": 695
+      }
+    },
+    {
+      "cell": "t0-b0",
+      "backend": "maplechrono",
+      "trained_choice": "shortest-half",
+      "chosen_score": 617,
+      "full_score": 551,
+      "all_scores": {
+        "all": 551,
+        "balanced-half": 535,
+        "shortest-half": 617
+      }
+    },
+    {
+      "cell": "t0-b1",
+      "backend": "cadical195",
+      "trained_choice": "shortest-half",
+      "chosen_score": 626,
+      "full_score": 688,
+      "all_scores": {
+        "all": 688,
+        "balanced-half": 670,
+        "shortest-half": 626
+      }
+    },
+    {
+      "cell": "t0-b1",
+      "backend": "maplechrono",
+      "trained_choice": "shortest-half",
+      "chosen_score": 491,
+      "full_score": 562,
+      "all_scores": {
+        "all": 562,
+        "balanced-half": 541,
+        "shortest-half": 491
+      }
+    },
+    {
+      "cell": "t3-b0",
+      "backend": "cadical195",
+      "trained_choice": "shortest-half",
+      "chosen_score": 483,
+      "full_score": 533,
+      "all_scores": {
+        "all": 533,
+        "balanced-half": 527,
+        "shortest-half": 483
+      }
+    },
+    {
+      "cell": "t3-b0",
+      "backend": "maplechrono",
+      "trained_choice": "all",
+      "chosen_score": 437,
+      "full_score": 437,
+      "all_scores": {
+        "all": 437,
+        "balanced-half": 375,
+        "shortest-half": 321
+      }
+    },
+    {
+      "cell": "t3-b1",
+      "backend": "cadical195",
+      "trained_choice": "balanced-half",
+      "chosen_score": 524,
+      "full_score": 517,
+      "all_scores": {
+        "all": 517,
+        "balanced-half": 524,
+        "shortest-half": 514
+      }
+    },
+    {
+      "cell": "t3-b1",
+      "backend": "maplechrono",
+      "trained_choice": "shortest-half",
+      "chosen_score": 301,
+      "full_score": 363,
+      "all_scores": {
+        "all": 363,
+        "balanced-half": 338,
+        "shortest-half": 301
+      }
+    }
+  ],
+  "scientific_classification": "UNKNOWN for both target orbits, no checked positive policy or negative refutation",
+  "statistical_caution": "same finite mask suites, one new deterministic seed and phase per case; no random independent population; score historical raw SAT policies for each run, not terminal CNF solutions"
+}
